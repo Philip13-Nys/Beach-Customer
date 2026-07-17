@@ -19,7 +19,7 @@ import AIAssistant from "./pages/AIAssistant";
 export default function App() {
   return (
     <AppProvider>
-      <HashRouter>
+      <HashRouter basename="/Beach-Customer">
         <Routes>
           <Route path="/auth" element={<Auth />} />
           <Route
