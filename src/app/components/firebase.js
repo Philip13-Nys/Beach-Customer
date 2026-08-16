@@ -15,12 +15,6 @@ const adminFirebaseConfig = {
   appId: "1:670887007684:web:667d509694678590084091",
 };
 
-const adminApp =
-  getApps().length === 0 ? initializeApp(adminFirebaseConfig) : getApp();
-
-export const auth = getAuth(adminApp);
-export const db = getFirestore(adminApp);
-
 // ================================
 // CUSTOMER FIREBASE
 // ================================
@@ -37,5 +31,8 @@ const customerFirebaseConfig = {
 const customerApp =
   getApps().find((app) => app.name === "customerApp") ??
   initializeApp(customerFirebaseConfig, "customerApp");
+
+export const auth = getAuth(customerApp);
+export const db = getFirestore(customerApp);
 
 export const customerDb = getFirestore(customerApp);
