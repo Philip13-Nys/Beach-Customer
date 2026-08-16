@@ -32,7 +32,7 @@ jobs:
         run: npm install
 
       - name: Build project
-        run: npm run build
+        run: VITE_BASE_PATH=/Beach-Customer/ npm run build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
