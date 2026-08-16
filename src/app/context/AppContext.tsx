@@ -150,7 +150,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const { firstName, lastName, email, phone, nationality, password } = data;
 
-      // Create Firebase Authentication account
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,

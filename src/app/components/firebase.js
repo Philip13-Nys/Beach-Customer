@@ -37,5 +37,4 @@ const customerApp =
   initializeApp(customerFirebaseConfig, "customerApp");
 
 export const auth = getAuth(customerApp);
-
 export const customerDb = getFirestore(customerApp);
