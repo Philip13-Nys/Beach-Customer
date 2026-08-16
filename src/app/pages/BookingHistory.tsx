@@ -14,7 +14,7 @@ import {
 import { useEffect, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { doc, updateDoc } from "firebase/firestore";
-import { auth, db } from "../components/firebase";
+import { auth, customerDb } from "../components/firebase";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useApp();
@@ -56,7 +56,7 @@ function BookingHistoryContent() {
       if (!user) return;
 
       const q = query(
-        collection(db, "Bookings"),
+        collection(customerDb, "Bookings"),
         where("userId", "==", user.uid),
       );
 
@@ -74,7 +74,7 @@ function BookingHistoryContent() {
   }, []);
 
   const handleCancel = async (id: string) => {
-    await updateDoc(doc(db, "Bookings", id), {
+    await updateDoc(doc(customerDb, "Bookings", id), {
       status: "cancelled",
     });
 

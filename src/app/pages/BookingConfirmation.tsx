@@ -1,7 +1,7 @@
 import { useParams, Link } from "react-router";
 import { useEffect, useState } from "react";
 import { doc, getDoc } from "firebase/firestore";
-import { db } from "../components/firebase";
+import { customerDb, db } from "../components/firebase";
 import { useApp } from "../context/AppContext";
 import {
   CheckCircle2,
@@ -21,7 +21,7 @@ export default function BookingConfirmation() {
     const loadBooking = async () => {
       if (!id) return;
 
-      const snap = await getDoc(doc(db, "Bookings", id));
+      const snap = await getDoc(doc(customerDb, "Bookings", id));
 
       if (snap.exists()) {
         setBooking({

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useApp } from "../context/AppContext";
 import {
@@ -11,6 +11,15 @@ import {
   CheckCircle2,
   LogOut,
 } from "lucide-react";
+import { customerDb, auth } from "../components/firebase";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  orderBy,
+  limit,
+} from "firebase/firestore";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useApp();
@@ -33,7 +42,58 @@ export default function Profile() {
 function ProfileContent() {
   const { user, updateProfile, logout } = useApp();
   const navigate = useNavigate();
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [loadingBookings, setLoadingBookings] = useState(true);
   const [tab, setTab] = useState<"info" | "password">("info");
+
+  useEffect(() => {
+    const loadBookings = async () => {
+      const currentUser = auth.currentUser;
+
+      if (!currentUser) {
+        setLoadingBookings(false);
+        return;
+      }
+
+      try {
+        const bookingsRef = collection(customerDb, "Bookings");
+
+        const q = query(bookingsRef, where("userId", "==", currentUser.uid));
+
+        const snapshot = await getDocs(q);
+
+        const bookingData = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+
+        setBookings(bookingData);
+      } catch (error) {
+        console.error("Error loading customer bookings:", error);
+      } finally {
+        setLoadingBookings(false);
+      }
+    };
+
+    loadBookings();
+  }, []);
+  const totalBookings = bookings.length;
+
+  const pendingBookings = bookings.filter(
+    (booking) => booking.status === "pending",
+  ).length;
+
+  const completedBookings = bookings.filter(
+    (booking) =>
+      booking.status === "completed" || booking.status === "confirmed",
+  ).length;
+
+  const totalSpent = bookings
+    .filter(
+      (booking) =>
+        booking.paymentStatus === "paid" || booking.status === "completed",
+    )
+    .reduce((total, booking) => total + Number(booking.totalPrice || 0), 0);
   const [saved, setSaved] = useState(false);
 
   const [form, setForm] = useState({
@@ -154,6 +214,42 @@ function ProfileContent() {
 
         {/* Main form */}
         <div className="lg:col-span-2">
+          {/* Booking Overview */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white rounded-2xl border border-border p-4">
+              <div className="text-xs text-muted-foreground">
+                Total Bookings
+              </div>
+
+              <div className="text-2xl font-bold text-primary mt-1">
+                {loadingBookings ? "..." : totalBookings}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-border p-4">
+              <div className="text-xs text-muted-foreground">Pending</div>
+
+              <div className="text-2xl font-bold text-accent mt-1">
+                {loadingBookings ? "..." : pendingBookings}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-border p-4">
+              <div className="text-xs text-muted-foreground">Completed</div>
+
+              <div className="text-2xl font-bold text-green-600 mt-1">
+                {loadingBookings ? "..." : completedBookings}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-border p-4">
+              <div className="text-xs text-muted-foreground">Total Spent</div>
+
+              <div className="text-xl font-bold text-primary mt-1">
+                {loadingBookings ? "..." : `₱${totalSpent.toLocaleString()}`}
+              </div>
+            </div>
+          </div>
           {tab === "info" ? (
             <form
               onSubmit={handleSave}
