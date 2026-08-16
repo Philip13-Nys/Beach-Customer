@@ -81,7 +81,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   className="text-sm font-semibold text-primary leading-none"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
-                  Sabang Beachssss and Diving Resort
+                  Sabang Beach and Diving Resort
                 </div>
                 <div className="text-[10px] text-muted-foreground leading-none tracking-wide uppercase">
                   Beach & Dive Resort
