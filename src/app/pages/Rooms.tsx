@@ -1,15 +1,19 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router";
-import { rooms, Room } from "../data/mockData";
 import { Star, Users, Maximize2, Filter, X, Search } from "lucide-react";
 
-const CATEGORIES = [
-  "All",
-  "Beachfront",
-  "Ocean View",
-  "Garden",
-  "Diving Suite",
-];
+import { db } from "../components/firebase";
+import { collection, getDocs } from "firebase/firestore";
+
+type RoomType = {
+  id: string;
+  name: string;
+  count: number;
+  amenities: string[];
+  maxGuests: number;
+  basePrice: number;
+  image: string;
+};
 
 export default function Rooms() {
   const [params] = useSearchParams();
@@ -18,21 +22,65 @@ export default function Rooms() {
   const [maxPrice, setMaxPrice] = useState(15000);
   const [minCapacity, setMinCapacity] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
-
+  const [rooms, setRooms] = useState<RoomType[]>([]);
+  const [loading, setLoading] = useState(true);
   const guestsParam = params.get("guests")
     ? parseInt(params.get("guests")!)
     : 1;
+  const searchText = search.toLowerCase();
+  const categories = [
+    "All",
+    ...Array.from(new Set(rooms.map((room) => room.name))),
+  ];
+  const filtered = rooms.filter((room) => {
+    const searchText = search.toLowerCase();
 
-  const filtered = rooms.filter((r) => {
     const matchSearch =
-      r.name.toLowerCase().includes(search.toLowerCase()) ||
-      r.description.toLowerCase().includes(search.toLowerCase());
-    const matchCat =
-      category === "All" || r.type.replace("-", " ") === category.toLowerCase();
-    const matchPrice = r.price <= maxPrice;
-    const matchCap = r.capacity >= Math.max(minCapacity, guestsParam);
-    return matchSearch && matchCat && matchPrice && matchCap;
+      room.name.toLowerCase().includes(searchText) ||
+      room.amenities.some((amenity) =>
+        amenity.toLowerCase().includes(searchText),
+      );
+
+    const matchCategory = category === "All" || room.name === category;
+
+    const matchPrice = room.basePrice <= maxPrice;
+
+    const matchCapacity = room.maxGuests >= Math.max(minCapacity, guestsParam);
+
+    return matchSearch && matchCategory && matchPrice && matchCapacity;
   });
+
+  useEffect(() => {
+    const loadRooms = async () => {
+      try {
+        setLoading(true);
+
+        const snapshot = await getDocs(collection(db, "roomTypes"));
+
+        const roomData: RoomType[] = snapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          return {
+            id: doc.id,
+            name: data.name || "",
+            count: Number(data.count || 0),
+            amenities: Array.isArray(data.amenities) ? data.amenities : [],
+            maxGuests: Number(data.maxGuests || 1),
+            basePrice: Number(data.basePrice || 0),
+            image: data.image || "",
+          };
+        });
+
+        setRooms(roomData);
+      } catch (error) {
+        console.error("Error loading rooms:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadRooms();
+  }, []);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -91,7 +139,7 @@ export default function Rooms() {
                 Room Type
               </label>
               <div className="space-y-1.5">
-                {CATEGORIES.map((cat) => (
+                {categories.map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setCategory(cat)}
@@ -160,7 +208,11 @@ export default function Rooms() {
 
         {/* Room grid */}
         <div className="flex-1">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="text-center py-20">
+              <p className="text-muted-foreground">Loading rooms...</p>
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="text-center py-20 text-muted-foreground">
               <div className="text-4xl mb-3">🏖️</div>
               <p className="font-medium text-foreground">
@@ -181,32 +233,37 @@ export default function Rooms() {
   );
 }
 
-function RoomCard({ room }: { room: Room }) {
+function RoomCard({ room }: { room: RoomType }) {
   return (
     <div className="bg-white rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-lg transition-all duration-300 group">
       <div className="relative h-52 overflow-hidden">
-        <img
-          src={room.images[0]}
-          alt={room.name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-        />
-        <div className="absolute top-3 left-3 flex gap-2">
-          <span className="px-2.5 py-1 bg-white/95 rounded-full text-xs font-medium text-primary capitalize">
-            {room.type.replace("-", " ")}
+        {room.image ? (
+          <img
+            src={room.image}
+            alt={room.name}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          />
+        ) : (
+          <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+            <span className="text-gray-400">No image available</span>
+          </div>
+        )}
+
+        <div className="absolute top-3 left-3">
+          <span className="px-2.5 py-1 bg-white/95 rounded-full text-xs font-medium text-primary">
+            {room.name}
           </span>
-          {!room.available && (
-            <span className="px-2.5 py-1 bg-red-100 text-red-600 rounded-full text-xs font-medium">
-              Unavailable
-            </span>
-          )}
         </div>
       </div>
 
       <div className="p-5">
-        <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="flex items-start justify-between gap-2 mb-2">
           <h3
             className="font-semibold text-foreground leading-tight"
-            style={{ fontFamily: "var(--font-display)", fontSize: "1.1rem" }}
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: "1.1rem",
+            }}
           >
             {room.name}
           </h3>
@@ -214,30 +271,30 @@ function RoomCard({ room }: { room: Room }) {
 
         <div className="flex items-center gap-3 mb-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
-            <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
-            {room.rating} ({room.reviews} reviews)
+            <Users className="w-3.5 h-3.5" />
+            Up to {room.maxGuests} guests
           </span>
-          <span className="flex items-center gap-1">
-            <Users className="w-3.5 h-3.5" /> Up to {room.capacity}
-          </span>
-          <span className="flex items-center gap-1">
-            <Maximize2 className="w-3.5 h-3.5" /> {room.size} m²
+
+          <span>
+            {room.count} room
+            {room.count !== 1 ? "s" : ""}
           </span>
         </div>
 
-        <p className="text-muted-foreground text-xs leading-relaxed mb-4 line-clamp-2">
-          {room.description}
+        <p className="text-muted-foreground text-xs leading-relaxed mb-4">
+          Comfortable accommodation for up to {room.maxGuests} guests.
         </p>
 
         <div className="flex flex-wrap gap-1.5 mb-4">
-          {room.amenities.slice(0, 4).map((a) => (
+          {room.amenities.slice(0, 4).map((amenity) => (
             <span
-              key={a}
+              key={amenity}
               className="px-2 py-0.5 bg-secondary text-primary text-[10px] rounded-full"
             >
-              {a}
+              {amenity}
             </span>
           ))}
+
           {room.amenities.length > 4 && (
             <span className="px-2 py-0.5 bg-muted text-muted-foreground text-[10px] rounded-full">
               +{room.amenities.length - 4} more
@@ -248,20 +305,17 @@ function RoomCard({ room }: { room: Room }) {
         <div className="flex items-center justify-between pt-3 border-t border-border">
           <div>
             <span className="text-accent font-bold text-xl">
-              ₱{room.price.toLocaleString()}
+              ₱{room.basePrice.toLocaleString()}
             </span>
+
             <span className="text-muted-foreground text-xs">/night</span>
           </div>
+
           <Link
             to={`/rooms/${room.id}`}
-            className={`text-sm font-medium px-4 py-2 rounded-xl transition-colors ${
-              room.available
-                ? "bg-primary text-white hover:bg-primary/90"
-                : "bg-muted text-muted-foreground cursor-not-allowed"
-            }`}
-            onClick={(e) => !room.available && e.preventDefault()}
+            className="text-sm font-medium px-4 py-2 rounded-xl bg-primary text-white hover:bg-primary/90 transition-colors"
           >
-            {room.available ? "View Details" : "Unavailable"}
+            View Details
           </Link>
         </div>
       </div>

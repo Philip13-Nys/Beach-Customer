@@ -64,7 +64,7 @@ export default function Landing() {
           <div className="max-w-3xl">
             <div className="flex items-center gap-2 mb-5">
               <span className="px-3 py-1 bg-accent/20 border border-accent/40 rounded-full text-accent text-xs font-medium uppercase tracking-wider">
-                Palawan, Philippines
+                Puerto, Philippines
               </span>
             </div>
             <h1

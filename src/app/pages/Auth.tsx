@@ -2,10 +2,6 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useApp } from "../context/AppContext";
 import { Eye, EyeOff, Anchor, CheckCircle2, AlertCircle } from "lucide-react";
-import { auth, db } from "../components/firebase";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { setDoc, doc } from "firebase/firestore";
 
 export default function Auth() {
   const [params] = useSearchParams();
@@ -24,9 +20,9 @@ export default function Auth() {
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [showLoginPwd, setShowLoginPwd] = useState(false);
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+
     setLoginError("");
 
     if (!loginEmail || !loginPassword) {
@@ -35,14 +31,16 @@ export default function Auth() {
     }
 
     try {
-      const userCredentials = await signInWithEmailAndPassword(
-        auth,
-        loginEmail,
-        loginPassword,
-      );
-      console.log("User logged in:", userCredentials.user);
-      navigate("/");
+      const success = await login(loginEmail, loginPassword);
+
+      if (success) {
+        navigate("/");
+      } else {
+        setLoginError("Invalid email or password.");
+      }
     } catch (error: any) {
+      console.error("Login error:", error);
+
       if (
         error.code === "auth/invalid-credential" ||
         error.code === "auth/wrong-password" ||
@@ -50,7 +48,7 @@ export default function Auth() {
       ) {
         setLoginError("Invalid email or password.");
       } else {
-        setLoginError(error.message);
+        setLoginError(error.message || "Login failed.");
       }
     }
   };
@@ -70,7 +68,9 @@ export default function Auth() {
   const [showPwd, setShowPwd] = useState(false);
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+
     setRegisterError("");
+
     const {
       firstName,
       lastName,
@@ -96,25 +96,33 @@ export default function Auth() {
       return;
     }
 
-    register({ firstName, lastName, email, phone, nationality, password });
-    navigate("/");
-
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      const user = auth.currentUser;
-      console.log("User created:", user);
-      if (user) {
-        await setDoc(doc(db, "Users", user.uid), {
-          firstName: firstName,
-          lastName: lastName,
-          email: email,
-          phone: phone,
-          nationality: nationality,
-        });
-        console.log("User data saved to Firestore");
+      const success = await register({
+        firstName,
+        lastName,
+        email,
+        phone,
+        nationality,
+        password,
+      });
+
+      if (success) {
+        navigate("/");
+      } else {
+        setRegisterError("Registration failed. Please try again.");
       }
-    } catch (error) {
-      console.error("Error saving user data to Firestore:", error);
+    } catch (error: any) {
+      console.error("Registration error:", error);
+
+      if (error.code === "auth/email-already-in-use") {
+        setRegisterError("This email is already registered.");
+      } else if (error.code === "auth/invalid-email") {
+        setRegisterError("Please enter a valid email address.");
+      } else if (error.code === "auth/weak-password") {
+        setRegisterError("Password is too weak.");
+      } else {
+        setRegisterError(error.message || "Registration failed.");
+      }
     }
   };
   const inputClass =

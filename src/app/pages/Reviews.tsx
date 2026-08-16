@@ -1,8 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useApp } from "../context/AppContext";
-import { sampleReviews } from "../data/mockData";
 import { Star, CheckCircle2, Send } from "lucide-react";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db } from "../components/firebase";
+
+type Review = {
+  id: string;
+  guestName: string;
+  guestAvatar: string;
+  rating: number;
+  comment: string;
+  date: string;
+  roomName?: string;
+  serviceName?: string;
+  category?: "room" | "service" | "overall";
+  userId?: string;
+};
 
 function StarPicker({
   value,
@@ -71,32 +90,93 @@ function ReviewsContent() {
     completedBookings[0]?.id || "",
   );
   const [submitted, setSubmitted] = useState(false);
-  const [reviews, setReviews] = useState(sampleReviews);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(true);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!rating || !comment) return;
-    const newReview = {
-      id: "rev_" + Date.now(),
-      guestName: user!.firstName + " " + user!.lastName,
-      guestAvatar: user!.avatar,
-      rating,
-      comment,
-      date: new Date().toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      }),
-      roomName: completedBookings.find((b) => b.id === selectedBooking)
-        ?.roomName,
+  useEffect(() => {
+    const loadReviews = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "reviews"));
+
+        const reviewData: Review[] = snapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          return {
+            id: doc.id,
+            guestName: data.guestName || "Guest",
+            guestAvatar: data.guestAvatar || "",
+            rating: Number(data.rating) || 0,
+            comment: data.comment || "",
+            date: data.date || "",
+            roomName: data.roomName || "",
+            serviceName: data.serviceName || "",
+            category: data.category || "overall",
+            userId: data.userId || "",
+          };
+        });
+
+        setReviews(reviewData);
+      } catch (error) {
+        console.error("Error loading reviews:", error);
+      } finally {
+        setLoadingReviews(false);
+      }
     };
-    setReviews((prev) => [newReview, ...prev]);
-    setSubmitted(true);
-    setTimeout(() => {
-      setSubmitted(false);
-      setRating(0);
-      setComment("");
-    }, 4000);
+
+    loadReviews();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!rating || !comment.trim()) return;
+
+    const selected = completedBookings.find((b) => b.id === selectedBooking);
+
+    try {
+      const reviewData = {
+        guestName: user!.firstName + " " + user!.lastName,
+        guestAvatar: user!.avatar || "",
+        rating,
+        comment: comment.trim(),
+        category,
+        roomName: selected?.roomName || "",
+        userId: user!.id,
+        date: new Date().toLocaleDateString("en-US", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        }),
+        createdAt: serverTimestamp(),
+      };
+
+      const docRef = await addDoc(collection(db, "reviews"), reviewData);
+
+      const newReview: Review = {
+        id: docRef.id,
+        guestName: reviewData.guestName,
+        guestAvatar: reviewData.guestAvatar,
+        rating: reviewData.rating,
+        comment: reviewData.comment,
+        category: reviewData.category,
+        roomName: reviewData.roomName,
+        userId: reviewData.userId,
+        date: reviewData.date,
+      };
+
+      setReviews((prev) => [newReview, ...prev]);
+
+      setSubmitted(true);
+
+      setTimeout(() => {
+        setSubmitted(false);
+        setRating(0);
+        setComment("");
+      }, 4000);
+    } catch (error) {
+      console.error("Error submitting review:", error);
+      alert("Failed to submit review. Please try again.");
+    }
   };
 
   const avgRating = (

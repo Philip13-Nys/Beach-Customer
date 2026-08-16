@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
-import { services, Service } from "../data/mockData";
 import { useApp } from "../context/AppContext";
+import { db } from "../components/firebase";
+import { collection, getDocs } from "firebase/firestore";
 import {
   Clock,
   Users,
@@ -11,6 +12,30 @@ import {
   Calendar,
   CheckCircle2,
 } from "lucide-react";
+
+type Service = {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  duration: string;
+  price: number;
+  maxParticipants: number;
+  available: boolean;
+  image: string;
+  difficulty?: string;
+  schedule: string[];
+};
+
+type Package = {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  discount: number;
+  services: string[];
+  image: string;
+};
 
 const CATEGORIES = [
   "All",
@@ -41,14 +66,92 @@ const difficultyColor: Record<string, string> = {
 export default function Services() {
   const [cat, setCat] = useState("All");
   const [selected, setSelected] = useState<Service | null>(null);
+  const [services, setServices] = useState<Service[]>([]);
+  const [loadingServices, setLoadingServices] = useState(true);
   const [bookingDate, setBookingDate] = useState("");
   const [bookingTime, setBookingTime] = useState("");
   const [participants, setParticipants] = useState(1);
   const [booked, setBooked] = useState(false);
   const { user } = useApp();
   const navigate = useNavigate();
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [loadingPackages, setLoadingPackages] = useState(true);
 
-  const filtered = services.filter((s) => catMap[cat].includes(s.category));
+  useEffect(() => {
+    const loadServices = async () => {
+      try {
+        setLoadingServices(true);
+
+        const snapshot = await getDocs(collection(db, "services"));
+
+        const loadedServices: Service[] = snapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          return {
+            id: doc.id,
+            name: data.name || "",
+            category: data.category || "",
+            description: data.description || "",
+            duration: data.duration || "",
+            price: Number(data.price || 0),
+            maxParticipants: Number(data.maxParticipants || 1),
+            available: data.available !== false,
+            image: data.image || "",
+            difficulty: data.difficulty || "",
+            schedule: Array.isArray(data.schedule) ? data.schedule : [],
+          };
+        });
+
+        console.log("Services loaded:", loadedServices);
+
+        setServices(loadedServices);
+      } catch (error) {
+        console.error("Error loading services:", error);
+      } finally {
+        setLoadingServices(false);
+      }
+    };
+
+    loadServices();
+  }, []);
+
+  useEffect(() => {
+    const loadPackages = async () => {
+      try {
+        setLoadingPackages(true);
+
+        const snapshot = await getDocs(collection(db, "packages"));
+
+        const loadedPackages: Package[] = snapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          return {
+            id: doc.id,
+            name: data.name || "",
+            description: data.description || "",
+            price: Number(data.price || 0),
+            discount: Number(data.discount || 0),
+            services: Array.isArray(data.services) ? data.services : [],
+            image: data.image || "",
+          };
+        });
+
+        console.log("Packages loaded:", loadedPackages);
+
+        setPackages(loadedPackages);
+      } catch (error) {
+        console.error("Error loading packages:", error);
+      } finally {
+        setLoadingPackages(false);
+      }
+    };
+
+    loadPackages();
+  }, []);
+
+  const filtered = services.filter((s) =>
+    catMap[cat].includes(s.category.toLowerCase() as Service["category"]),
+  );
 
   const handleBook = () => {
     if (!user) {

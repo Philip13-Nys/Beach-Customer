@@ -54,7 +54,7 @@ export default function BookingConfirmation() {
     );
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-12">
+    <div className="print-area max-w-2xl mx-auto px-4 py-12">
       {/* Success header */}
       <div className="text-center mb-10">
         <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
@@ -230,7 +230,7 @@ export default function BookingConfirmation() {
       </div>
 
       {/* Actions */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="print:hidden flex flex-col sm:flex-row gap-3">
         {booking.paymentStatus === "unpaid" && (
           <Link
             to="/payment"
@@ -239,12 +239,14 @@ export default function BookingConfirmation() {
             <CreditCard className="w-4 h-4" /> Pay Now
           </Link>
         )}
+
         <Link
           to="/booking-history"
           className="flex-1 border border-border text-foreground text-center py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-2"
         >
           View All Bookings <ArrowRight className="w-4 h-4" />
         </Link>
+
         <button
           onClick={() => window.print()}
           className="flex-1 border border-border text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-2"

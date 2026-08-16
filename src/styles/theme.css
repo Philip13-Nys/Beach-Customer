@@ -2,43 +2,43 @@
 
 :root {
   --font-size: 16px;
-  --background: #F7F4EE;
-  --foreground: #0A2540;
-  --card: #FFFFFF;
-  --card-foreground: #0A2540;
-  --popover: #FFFFFF;
-  --popover-foreground: #0A2540;
-  --primary: #0A3D62;
-  --primary-foreground: #FFFFFF;
-  --secondary: #E8F4F8;
-  --secondary-foreground: #0A3D62;
-  --muted: #EDE9E0;
-  --muted-foreground: #6B6558;
-  --accent: #E8734A;
-  --accent-foreground: #FFFFFF;
+  --background: #f7f4ee;
+  --foreground: #0a2540;
+  --card: #ffffff;
+  --card-foreground: #0a2540;
+  --popover: #ffffff;
+  --popover-foreground: #0a2540;
+  --primary: #0a3d62;
+  --primary-foreground: #ffffff;
+  --secondary: #e8f4f8;
+  --secondary-foreground: #0a3d62;
+  --muted: #ede9e0;
+  --muted-foreground: #6b6558;
+  --accent: #e8734a;
+  --accent-foreground: #ffffff;
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
   --border: rgba(10, 61, 98, 0.12);
   --input: transparent;
-  --input-background: #EDE9E0;
-  --switch-background: #B8D4E0;
+  --input-background: #ede9e0;
+  --switch-background: #b8d4e0;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #0A3D62;
-  --chart-1: #E8734A;
-  --chart-2: #0A3D62;
-  --chart-3: #1A8A7A;
-  --chart-4: #F4C96A;
-  --chart-5: #7DB8C9;
+  --ring: #0a3d62;
+  --chart-1: #e8734a;
+  --chart-2: #0a3d62;
+  --chart-3: #1a8a7a;
+  --chart-4: #f4c96a;
+  --chart-5: #7db8c9;
   --radius: 0.75rem;
-  --sidebar: #0A3D62;
-  --sidebar-foreground: #FFFFFF;
-  --sidebar-primary: #E8734A;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #0B4F6C;
-  --sidebar-accent-foreground: #FFFFFF;
-  --sidebar-border: rgba(255,255,255,0.12);
-  --sidebar-ring: #E8734A;
+  --sidebar: #0a3d62;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #e8734a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #0b4f6c;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.12);
+  --sidebar-ring: #e8734a;
 }
 
 .dark {
@@ -177,5 +177,57 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  /* Hide the entire website */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Show only booking confirmation */
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+
+  .print-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  /* Hide buttons */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Prevent cards from being split */
+  .print-area > div {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Don't print unnecessary shadows */
+  .print-area .shadow-sm,
+  .print-area .shadow-lg {
+    box-shadow: none !important;
   }
 }

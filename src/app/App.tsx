@@ -30,7 +30,7 @@ export default function App() {
                   <Route path="/" element={<Landing />} />
                   <Route path="/rooms" element={<Rooms />} />
                   <Route path="/rooms/:id" element={<RoomDetail />} />
-                  <Route path="/booking/:roomId" element={<BookingPage />} />
+                  <Route path="/booking/:id" element={<BookingPage />} />
                   <Route
                     path="/booking-confirmation/:id"
                     element={<BookingConfirmation />}

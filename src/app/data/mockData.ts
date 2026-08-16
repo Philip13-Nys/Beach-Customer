@@ -1,7 +1,7 @@
 export interface Room {
   id: string;
   name: string;
-  type: 'beachfront' | 'ocean-view' | 'garden' | 'diving-suite';
+  type: "beachfront" | "ocean-view" | "garden" | "diving-suite";
   price: number;
   capacity: number;
   size: number;
@@ -16,7 +16,7 @@ export interface Room {
 export interface Service {
   id: string;
   name: string;
-  category: 'diving' | 'snorkeling' | 'water-sports' | 'island' | 'wellness';
+  category: "diving" | "snorkeling" | "water-sports" | "island" | "wellness";
   price: number;
   duration: string;
   description: string;
@@ -40,7 +40,7 @@ export interface Review {
 
 export interface Notification {
   id: string;
-  type: 'booking' | 'payment' | 'reminder' | 'promo' | 'system';
+  type: "booking" | "payment" | "reminder" | "promo" | "system";
   title: string;
   message: string;
   date: string;
@@ -59,29 +59,19 @@ export interface Booking {
   roomRate: number;
   addOns: { name: string; price: number }[];
   totalPrice: number;
-  status: 'confirmed' | 'pending' | 'cancelled' | 'completed';
-  paymentStatus: 'paid' | 'partial' | 'unpaid';
+  status: "confirmed" | "pending" | "cancelled" | "completed";
+  paymentStatus: "paid" | "partial" | "unpaid";
   bookingRef: string;
   createdAt: string;
   specialRequests?: string;
 }
 
-export const rooms: Room[] = [
- 
-];
+export const rooms: Room[] = [];
 
-export const services: Service[] = [
- 
-];
+export const services: Service[] = [];
 
-export const sampleReviews: Review[] = [
-  
-];
+export const sampleReviews: Review[] = [];
 
-export const sampleBookings: Booking[] = [
-  
-];
+export const sampleBookings: Booking[] = [];
 
-export const sampleNotifications: Notification[] = [
- 
-];
+export const sampleNotifications: Notification[] = [];

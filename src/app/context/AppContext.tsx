@@ -5,15 +5,24 @@ import {
   useEffect,
   ReactNode,
 } from "react";
+
 import {
   Booking,
   Notification,
   sampleBookings,
   sampleNotifications,
 } from "../data/mockData";
+
 import { auth, db } from "../components/firebase";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+
+import {
+  onAuthStateChanged,
+  signOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+} from "firebase/auth";
+
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 export interface User {
   id: string;
@@ -28,11 +37,11 @@ export interface User {
 
 interface AppContextType {
   user: User | null;
-  login: (email: string, password: string) => boolean;
+  login: (email: string, password: string) => Promise<boolean>;
   register: (
     data: Omit<User, "id" | "avatar" | "memberSince"> & { password: string },
-  ) => boolean;
-  logout: () => void;
+  ) => Promise<boolean>;
+  logout: () => Promise<void>;
   updateProfile: (data: Partial<User>) => void;
   bookings: Booking[];
   addBooking: (booking: Booking) => void;
@@ -73,24 +82,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const snap = await getDoc(doc(db, "Users", firebaseUser.uid));
+      if (!firebaseUser) {
+        setUser(null);
+        return;
+      }
 
-        if (snap.exists()) {
-          const data = snap.data();
+      try {
+        const userRef = doc(db, "Users", firebaseUser.uid);
+        const snap = await getDoc(userRef);
 
-          setUser({
-            id: firebaseUser.uid,
-            firstName: data.firstName,
-            lastName: data.lastName,
-            email: data.email,
-            phone: data.phone,
-            nationality: data.nationality,
-            avatar: "",
-            memberSince: "",
-          });
+        if (!snap.exists()) {
+          console.error(
+            "User profile not found in Firestore:",
+            firebaseUser.uid,
+          );
+
+          setUser(null);
+          return;
         }
-      } else {
+
+        const data = snap.data();
+
+        setUser({
+          id: firebaseUser.uid,
+          firstName: data.firstName || "",
+          lastName: data.lastName || "",
+          email: data.email || firebaseUser.email || "",
+          phone: data.phone || "",
+          nationality: data.nationality || "",
+          avatar: data.avatar || "",
+          memberSince: data.memberSince || "",
+        });
+      } catch (error) {
+        console.error("Error loading user profile:", error);
+
         setUser(null);
       }
     });
@@ -105,42 +130,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("cbr_notifs", JSON.stringify(notifications));
   }, [notifications]);
 
-  const login = () => true;
+  const login = async (email: string, password: string): Promise<boolean> => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
 
-  const register = (
+      return true;
+    } catch (error) {
+      console.error("Login error:", error);
+
+      return false;
+    }
+  };
+
+  const register = async (
     data: Omit<User, "id" | "avatar" | "memberSince"> & { password: string },
-  ): boolean => {
-    const { password: _, ...rest } = data;
-    const newUser: User = {
-      ...rest,
-      id: "u_" + Date.now(),
-      avatar: `https://ui-avatars.com/api/?name=${rest.firstName}+${rest.lastName}&background=0A3D62&color=fff`,
-      memberSince: new Date().toLocaleDateString("en-US", {
-        month: "long",
-        year: "numeric",
-      }),
-    };
-    localStorage.setItem(
-      "cbr_registered_" + data.email,
-      JSON.stringify(newUser),
-    );
-    setUser(newUser);
-    setBookings([]);
-    setNotifications([
-      {
-        id: "n_welcome",
-        type: "system",
-        title: "Welcome to Sabang Beach and Diving Resort!",
-        message: `Hi ${newUser.firstName}! Your account is ready. Start exploring our rooms and activities.`,
-        date: new Date().toISOString().split("T")[0],
-        read: false,
-      },
-    ]);
-    return true;
+  ): Promise<boolean> => {
+    try {
+      const { firstName, lastName, email, phone, nationality, password } = data;
+
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password,
+      );
+
+      const firebaseUser = userCredential.user;
+
+      await setDoc(doc(db, "Users", firebaseUser.uid), {
+        firstName,
+        lastName,
+        email,
+        phone,
+        nationality,
+        avatar: "",
+        memberSince: new Date().toLocaleDateString("en-US", {
+          month: "long",
+          year: "numeric",
+        }),
+        createdAt: new Date(),
+      });
+
+      console.log("Firebase account created:", firebaseUser.uid);
+      console.log("User profile created in Firestore");
+
+      return true;
+    } catch (error) {
+      console.error("Registration error:", error);
+      throw error;
+    }
   };
 
   const logout = async () => {
-    await signOut(auth);
+    try {
+      await signOut(auth);
+      setUser(null);
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   const updateProfile = (data: Partial<User>) => {
