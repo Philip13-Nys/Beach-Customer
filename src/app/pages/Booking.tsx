@@ -9,7 +9,7 @@ import {
   Minus,
   CheckCircle2,
 } from "lucide-react";
-import { auth, db } from "../components/firebase";
+import { auth, db, customerDb } from "../components/firebase";
 import {
   addDoc,
   collection,
@@ -238,7 +238,7 @@ export default function BookingPage() {
     try {
       console.log("Starting booking...");
 
-      const userRef = doc(db, "Users", currentUser.uid);
+      const userRef = doc(customerDb, "Users", currentUser.uid);
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
