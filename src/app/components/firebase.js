@@ -14,6 +14,10 @@ const adminFirebaseConfig = {
   messagingSenderId: "670887007684",
   appId: "1:670887007684:web:667d509694678590084091",
 };
+const adminApp =
+  getApps().find((app) => app.name === "adminApp") ??
+  initializeApp(adminFirebaseConfig, "adminApp");
+export const db = getFirestore(adminApp);
 
 // ================================
 // CUSTOMER FIREBASE
@@ -33,4 +37,5 @@ const customerApp =
   initializeApp(customerFirebaseConfig, "customerApp");
 
 export const auth = getAuth(customerApp);
+
 export const customerDb = getFirestore(customerApp);
