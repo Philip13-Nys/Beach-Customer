@@ -178,7 +178,7 @@ function ProfileContent() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                  <label className="blocks text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
                     <User className="w-3.5 h-3.5 text-muted-foreground" /> First
                     Name
                   </label>
@@ -207,7 +207,7 @@ function ProfileContent() {
               </div>
 
               <div className="mb-4">
-                <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                <label className="blocks text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5 text-muted-foreground" /> Email
                   Address
                 </label>
@@ -223,7 +223,7 @@ function ProfileContent() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                  <label className="blocks text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
                     <Phone className="w-3.5 h-3.5 text-muted-foreground" />{" "}
                     Phone Number
                   </label>
@@ -237,7 +237,7 @@ function ProfileContent() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                  <label className="blocks text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
                     <Globe className="w-3.5 h-3.5 text-muted-foreground" />{" "}
                     Nationality
                   </label>

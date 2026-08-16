@@ -244,7 +244,7 @@ export default function Services() {
               <div className="p-5">
                 <div className="space-y-3 mb-5">
                   <div>
-                    <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                    <label className="blocks text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5 text-muted-foreground" />{" "}
                       Preferred Date
                     </label>
