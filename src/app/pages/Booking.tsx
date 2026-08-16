@@ -290,7 +290,10 @@ export default function BookingPage() {
 
       console.log("Booking data:", bookingData);
 
-      const docRef = await addDoc(collection(db, "Bookings"), bookingData);
+      const docRef = await addDoc(
+        collection(customerDb, "Bookings"),
+        bookingData,
+      );
 
       console.log("Booking successfully created:", docRef.id);
 
