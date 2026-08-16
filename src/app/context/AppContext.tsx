@@ -13,7 +13,7 @@ import {
   sampleNotifications,
 } from "../data/mockData";
 
-import { auth, db } from "../components/firebase";
+import { auth, customerDb } from "../components/firebase";
 
 import {
   onAuthStateChanged,
@@ -88,7 +88,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const userRef = doc(db, "Users", firebaseUser.uid);
+        const userRef = doc(customerDb, "Users", firebaseUser.uid);
         const snap = await getDoc(userRef);
 
         if (!snap.exists()) {
@@ -143,11 +143,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const register = async (
-    data: Omit<User, "id" | "avatar" | "memberSince"> & { password: string },
+    data: Omit<User, "id" | "avatar" | "memberSince"> & {
+      password: string;
+    },
   ): Promise<boolean> => {
     try {
       const { firstName, lastName, email, phone, nationality, password } = data;
 
+      // Create Firebase Authentication account
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
@@ -156,10 +159,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const firebaseUser = userCredential.user;
 
-      await setDoc(doc(db, "Users", firebaseUser.uid), {
+      // Create Firestore user profile
+      await setDoc(doc(customerDb, "Users", firebaseUser.uid), {
         firstName,
         lastName,
-        email,
+        email: firebaseUser.email || email,
         phone,
         nationality,
         avatar: "",
