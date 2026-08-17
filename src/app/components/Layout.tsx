@@ -70,20 +70,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+          <div className="flex items-center justify-between min-h-16 py-2">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2 group">
               <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
                 <Anchor className="w-5 h-5 text-white" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div
-                  className="text-sm font-semibold text-primary leading-none"
+                  className="text-xs sm:text-sm font-semibold text-primary leading-tight truncate max-w-[150px] sm:max-w-none"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   Sabang Beach and Diving Resort
                 </div>
-                <div className="text-[10px] text-muted-foreground leading-none tracking-wide uppercase">
+
+                <div className="hidden sm:block text-[10px] text-muted-foreground leading-none tracking-wide uppercase">
                   Beach & Dive Resort
                 </div>
               </div>
@@ -128,7 +129,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </nav>
 
             {/* Right side */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
               {user ? (
                 <>
                   {/* Notifications */}
@@ -148,14 +149,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <div className="relative">
                     <button
                       onClick={() => setUserMenuOpen(!userMenuOpen)}
-                      className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full border border-border hover:bg-muted transition-colors"
+                      className="flex items-center gap-1 sm:gap-2 pl-1 pr-1 sm:pr-2 py-1 rounded-full border border-border hover:bg-muted transition-colors max-w-[140px] sm:max-w-none"
                     >
                       <img
                         src={user.avatar}
                         alt={user.firstName}
                         className="w-7 h-7 rounded-full object-cover"
                       />
-                      <span className="text-sm font-medium text-foreground hidden sm:block">
+                      <span className="text-sm font-medium text-foreground hidden sm:block truncate max-w-[80px]">
                         {user.firstName}
                       </span>
                       <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
@@ -229,7 +230,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Mobile menu */}
         {menuOpen && (
-          <div className="md:hidden border-t border-border bg-white py-4">
+          <div className="md:hidden border-t border-border bg-white py-4 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="max-w-7xl mx-auto px-4 space-y-1">
               {navLinks.map((link) => (
                 <Link
@@ -355,11 +356,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className="border-t border-white/10 mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="border-t border-white/10 mt-8 sm:mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
             <p className="text-white/40 text-xs">
               © 2026 Sabang Beach & Diving Resorts. All rights reserved.
             </p>
-            <div className="flex gap-4 text-white/40 text-xs">
+            <div className="flex flex-wrap justify-center sm:justify-end gap-x-4 gap-y-2 text-white/40 text-xs">
               <a href="#" className="hover:text-white transition-colors">
                 Privacy Policy
               </a>

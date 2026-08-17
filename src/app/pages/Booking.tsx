@@ -101,11 +101,15 @@ export default function BookingPage() {
       }
 
       try {
+        console.log("Loading room from ADMIN Firestore:", id);
+
         const roomRef = doc(db, "roomTypes", id);
         const roomSnap = await getDoc(roomRef);
 
         if (roomSnap.exists()) {
           const data = roomSnap.data();
+
+          console.log("Room found:", roomSnap.id, data);
 
           const roomData: RoomType = {
             id: roomSnap.id,
@@ -119,7 +123,7 @@ export default function BookingPage() {
 
           setRoom(roomData);
         } else {
-          console.error("Firestore room not found:", id);
+          console.error("Room not found in db:", id);
           setRoom(null);
         }
       } catch (error) {

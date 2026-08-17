@@ -5,23 +5,22 @@ import {
   useEffect,
   ReactNode,
 } from "react";
-
 import {
   Booking,
   Notification,
   sampleBookings,
   sampleNotifications,
 } from "../data/mockData";
-
 import { auth, customerDb } from "../components/firebase";
-
 import {
   onAuthStateChanged,
   signOut,
+  GoogleAuthProvider,
+  signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendEmailVerification,
 } from "firebase/auth";
-
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
 export interface User {
@@ -37,20 +36,41 @@ export interface User {
 
 interface AppContextType {
   user: User | null;
+
   login: (email: string, password: string) => Promise<boolean>;
-  register: (
-    data: Omit<User, "id" | "avatar" | "memberSince"> & { password: string },
-  ) => Promise<boolean>;
+
+  googleLogin: () => Promise<boolean>;
+
   logout: () => Promise<void>;
+
+  googleRegister: (data: {
+    firstName: string;
+    lastName: string;
+    phone: string;
+    nationality: string;
+  }) => Promise<boolean>;
+
+  register: (data: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    nationality: string;
+    password: string;
+  }) => Promise<boolean>;
+
   updateProfile: (data: Partial<User>) => void;
+
   bookings: Booking[];
   addBooking: (booking: Booking) => void;
   cancelBooking: (id: string) => void;
   modifyBooking: (id: string, updates: Partial<Booking>) => void;
+
   notifications: Notification[];
   markNotificationRead: (id: string) => void;
   markAllRead: () => void;
   unreadCount: number;
+
   pendingPayment: Booking | null;
   setPendingPayment: (b: Booking | null) => void;
 }
@@ -130,65 +150,171 @@ export function AppProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("cbr_notifs", JSON.stringify(notifications));
   }, [notifications]);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const register = async (data: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    nationality: string;
+    password: string;
+  }): Promise<boolean> => {
     try {
-      const userCredential = await signInWithEmailAndPassword(
+      const result = await createUserWithEmailAndPassword(
         auth,
-        email.trim(),
-        password,
+        data.email,
+        data.password,
       );
 
-      console.log("Login successful:", userCredential.user.uid);
-      console.log("Email:", userCredential.user.email);
+      const firebaseUser = result.user;
 
-      return true;
-    } catch (error: any) {
-      console.error("Firebase Login Error");
-      console.error("Code:", error.code);
-      console.error("Message:", error.message);
+      await sendEmailVerification(firebaseUser);
 
-      return false;
-    }
-  };
-
-  const register = async (
-    data: Omit<User, "id" | "avatar" | "memberSince"> & {
-      password: string;
-    },
-  ): Promise<boolean> => {
-    try {
-      const { firstName, lastName, email, phone, nationality, password } = data;
-
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        email,
-        password,
-      );
-
-      const firebaseUser = userCredential.user;
-
-      // Create Firestore user profile
       await setDoc(doc(customerDb, "Users", firebaseUser.uid), {
-        firstName,
-        lastName,
-        email: firebaseUser.email || email,
-        phone,
-        nationality,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone,
+        nationality: data.nationality,
         avatar: "",
         memberSince: new Date().toLocaleDateString("en-US", {
           month: "long",
           year: "numeric",
         }),
         createdAt: new Date(),
+        provider: "email",
       });
 
-      console.log("Firebase account created:", firebaseUser.uid);
-      console.log("User profile created in Firestore");
-
+      await signOut(auth);
       return true;
     } catch (error) {
       console.error("Registration error:", error);
       throw error;
+    }
+  };
+
+  const login = async (email: string, password: string) => {
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+
+      const firebaseUser = result.user;
+
+      if (!firebaseUser.emailVerified) {
+        await signOut(auth);
+
+        throw new Error("EMAIL_NOT_VERIFIED");
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Login error:", error);
+      throw error;
+    }
+  };
+
+  const googleLogin = async (): Promise<boolean> => {
+    try {
+      const provider = new GoogleAuthProvider();
+
+      provider.setCustomParameters({
+        prompt: "select_account",
+      });
+
+      const result = await signInWithPopup(auth, provider);
+
+      const firebaseUser = result.user;
+
+      const userRef = doc(customerDb, "Users", firebaseUser.uid);
+      const userSnap = await getDoc(userRef);
+
+      if (!userSnap.exists()) {
+        // Google account is valid, but not registered in your resort system
+        await signOut(auth);
+
+        alert(
+          "This Google account is not registered. Please use Create Account first.",
+        );
+
+        return false;
+      }
+
+      console.log("Google login successful:", firebaseUser.uid);
+
+      return true;
+    } catch (error: any) {
+      console.error("Google Login Error:", error);
+
+      return false;
+    }
+  };
+
+  const googleRegister = async (data: {
+    firstName: string;
+    lastName: string;
+    phone: string;
+    nationality: string;
+  }): Promise<boolean> => {
+    try {
+      const provider = new GoogleAuthProvider();
+
+      provider.setCustomParameters({
+        prompt: "select_account",
+      });
+
+      // Google authentication
+      const result = await signInWithPopup(auth, provider);
+
+      const firebaseUser = result.user;
+
+      if (!firebaseUser.email) {
+        throw new Error("Google account does not have an email address.");
+      }
+
+      // Firebase UID
+      const userRef = doc(customerDb, "Users", firebaseUser.uid);
+
+      // Check if profile already exists
+      const existingUser = await getDoc(userRef);
+
+      if (existingUser.exists()) {
+        console.log("Google account already has a profile.");
+
+        return true;
+      }
+
+      // Create Firestore profile
+      await setDoc(userRef, {
+        firstName: data.firstName,
+        lastName: data.lastName,
+
+        // Email comes ONLY from Google
+        email: firebaseUser.email,
+
+        phone: data.phone,
+        nationality: data.nationality,
+
+        avatar: firebaseUser.photoURL || "",
+
+        memberSince: new Date().toLocaleDateString("en-US", {
+          month: "long",
+          year: "numeric",
+        }),
+
+        createdAt: new Date(),
+
+        provider: "google",
+      });
+
+      console.log("Google account registered successfully.");
+      console.log("Firebase UID:", firebaseUser.uid);
+      console.log("Google Email:", firebaseUser.email);
+
+      return true;
+    } catch (error: any) {
+      console.error("Google registration error:", error);
+      console.error("Code:", error.code);
+      console.error("Message:", error.message);
+
+      return false;
     }
   };
 
@@ -271,6 +397,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         user,
         login,
         register,
+        googleLogin,
+        googleRegister,
         logout,
         updateProfile,
         bookings,

@@ -4,56 +4,24 @@ import { useApp } from "../context/AppContext";
 import { Eye, EyeOff, Anchor, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function Auth() {
+  const { user, login, register, googleLogin, googleRegister } = useApp();
+
   const [params] = useSearchParams();
+
   const [tab, setTab] = useState<"login" | "register">(
     params.get("tab") === "register" ? "register" : "login",
   );
-  const { user, login, register } = useApp();
+
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (user) navigate("/");
-  }, [user]);
+  const [loginError, setLoginError] = useState("");
+  const [registerError, setRegisterError] = useState("");
 
-  // Login state
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
   const [showLoginPwd, setShowLoginPwd] = useState(false);
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const [showPwd, setShowPwd] = useState(false);
 
-    setLoginError("");
-
-    if (!loginEmail || !loginPassword) {
-      setLoginError("Please enter your email and password.");
-      return;
-    }
-
-    try {
-      const success = await login(loginEmail, loginPassword);
-
-      if (success) {
-        navigate("/");
-      } else {
-        setLoginError("Invalid email or password.");
-      }
-    } catch (error: any) {
-      console.error("Login error:", error);
-
-      if (
-        error.code === "auth/invalid-credential" ||
-        error.code === "auth/wrong-password" ||
-        error.code === "auth/user-not-found"
-      ) {
-        setLoginError("Invalid email or password.");
-      } else {
-        setLoginError(error.message || "Login failed.");
-      }
-    }
-  };
-
-  // Register state
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -64,65 +32,214 @@ export default function Auth() {
     confirmPassword: "",
   });
 
-  const [registerError, setRegisterError] = useState("");
-  const [showPwd, setShowPwd] = useState(false);
+  useEffect(() => {
+    if (user) {
+      navigate("/");
+    }
+  }, [user, navigate]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    setLoginError("");
+
+    if (!loginEmail.trim() || !loginPassword) {
+      setLoginError("Please enter your email and password.");
+      return;
+    }
+
+    try {
+      const success = await login(loginEmail.trim(), loginPassword);
+
+      if (success) {
+        navigate("/");
+      } else {
+        setLoginError("Invalid email or password.");
+      }
+    } catch (error: any) {
+      console.error("Login error:", error);
+
+      if (error.message === "EMAIL_NOT_VERIFIED") {
+        setLoginError(
+          "Your email is not verified. Please check your email and verify your account before signing in.",
+        );
+        return;
+      }
+
+      if (
+        error.code === "auth/invalid-credential" ||
+        error.code === "auth/wrong-password" ||
+        error.code === "auth/user-not-found"
+      ) {
+        setLoginError("Invalid email or password.");
+        return;
+      }
+
+      setLoginError(error.message || "Login failed.");
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoginError("");
+    setRegisterError("");
+
+    try {
+      const success = await googleLogin();
+
+      if (success) {
+        navigate("/");
+      }
+    } catch (error: any) {
+      console.error("Google login error:", error);
+
+      if (error.message === "ACCOUNT_NOT_REGISTERED") {
+        setLoginError(
+          "This Google account is not registered. Please create an account first.",
+        );
+        return;
+      }
+
+      if (error.code === "auth/popup-closed-by-user") {
+        return;
+      }
+
+      if (error.code === "auth/popup-blocked") {
+        setLoginError("Google sign-in popup was blocked by your browser.");
+        return;
+      }
+
+      setLoginError(
+        error.message || "Google sign-in failed. Please try again.",
+      );
+    }
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
     setRegisterError("");
 
-    const {
-      firstName,
-      lastName,
-      email,
-      phone,
-      nationality,
-      password,
-      confirmPassword,
-    } = form;
-
-    if (!firstName || !lastName || !email || !phone || !password) {
+    // Validate required fields
+    if (
+      !form.firstName.trim() ||
+      !form.lastName.trim() ||
+      !form.email.trim() ||
+      !form.phone.trim() ||
+      !form.password ||
+      !form.confirmPassword
+    ) {
       setRegisterError("Please fill in all required fields.");
       return;
     }
 
-    if (password.length < 8) {
+    // Password length
+    if (form.password.length < 8) {
       setRegisterError("Password must be at least 8 characters.");
       return;
     }
 
-    if (password !== confirmPassword) {
+    // Confirm password
+    if (form.password !== form.confirmPassword) {
       setRegisterError("Passwords do not match.");
       return;
     }
 
     try {
       const success = await register({
-        firstName,
-        lastName,
-        email,
-        phone,
-        nationality,
-        password,
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        nationality: form.nationality.trim(),
+        password: form.password,
       });
 
       if (success) {
-        navigate("/");
-      } else {
-        setRegisterError("Registration failed. Please try again.");
+        setRegisterError("");
+
+        alert(
+          "Account created successfully! Please check your email and click the verification link before signing in.",
+        );
+
+        setForm({
+          firstName: "",
+          lastName: "",
+          email: "",
+          phone: "",
+          nationality: "",
+          password: "",
+          confirmPassword: "",
+        });
+
+        setTab("login");
       }
     } catch (error: any) {
       console.error("Registration error:", error);
 
       if (error.code === "auth/email-already-in-use") {
-        setRegisterError("This email is already registered.");
-      } else if (error.code === "auth/invalid-email") {
-        setRegisterError("Please enter a valid email address.");
-      } else if (error.code === "auth/weak-password") {
-        setRegisterError("Password is too weak.");
-      } else {
-        setRegisterError(error.message || "Registration failed.");
+        setRegisterError(
+          "This email is already registered. Please sign in instead.",
+        );
+        return;
       }
+
+      if (error.code === "auth/invalid-email") {
+        setRegisterError("Please enter a valid email address.");
+        return;
+      }
+
+      if (error.code === "auth/weak-password") {
+        setRegisterError("Password must be at least 6 characters.");
+        return;
+      }
+
+      setRegisterError(
+        error.message || "Registration failed. Please try again.",
+      );
+    }
+  };
+
+  const handleGoogleRegister = async () => {
+    setRegisterError("");
+
+    if (!form.phone.trim()) {
+      setRegisterError("Please enter your phone number.");
+      return;
+    }
+
+    try {
+      const success = await googleRegister({
+        firstName: "",
+        lastName: "",
+        phone: form.phone.trim(),
+        nationality: form.nationality.trim(),
+      });
+
+      if (success) {
+        navigate("/");
+      }
+    } catch (error: any) {
+      console.error("Google registration error:", error);
+
+      if (error.message === "ACCOUNT_ALREADY_EXISTS") {
+        setRegisterError(
+          "This Google account is already registered. Please sign in instead.",
+        );
+        return;
+      }
+
+      if (error.code === "auth/popup-closed-by-user") {
+        return;
+      }
+
+      if (error.code === "auth/popup-blocked") {
+        setRegisterError("Google sign-up popup was blocked by your browser.");
+        return;
+      }
+
+      setRegisterError(
+        error.message || "Google registration failed. Please try again.",
+      );
     }
   };
   const inputClass =
@@ -234,19 +351,25 @@ export default function Auth() {
                 >
                   Welcome back
                 </h1>
+
                 <p className="text-muted-foreground text-sm">
-                  Sign in to manage your reservations.
+                  Sign in using your verified email account.
                 </p>
               </div>
+
               {loginError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" /> {loginError}
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  {loginError}
                 </div>
               )}
+
+              {/* Email */}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Email address
                 </label>
+
                 <input
                   type="email"
                   placeholder="your@email.com"
@@ -255,10 +378,13 @@ export default function Auth() {
                   className={inputClass}
                 />
               </div>
+
+              {/* Password */}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Password
                 </label>
+
                 <div className="relative">
                   <input
                     type={showLoginPwd ? "text" : "password"}
@@ -267,10 +393,11 @@ export default function Auth() {
                     onChange={(e) => setLoginPassword(e.target.value)}
                     className={inputClass + " pr-10"}
                   />
+
                   <button
                     type="button"
                     onClick={() => setShowLoginPwd(!showLoginPwd)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                   >
                     {showLoginPwd ? (
                       <EyeOff className="w-4 h-4" />
@@ -279,27 +406,64 @@ export default function Auth() {
                     )}
                   </button>
                 </div>
-                <div className="flex justify-end mt-1.5">
-                  <button
-                    type="button"
-                    className="text-xs text-primary hover:text-accent transition-colors"
-                  >
-                    Forgot password?
-                  </button>
-                </div>
               </div>
+
+              {/* Login */}
               <button
                 type="submit"
                 className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
               >
                 Sign In
               </button>
+
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-border" />
+                </div>
+
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-background px-3 text-muted-foreground">
+                    OR
+                  </span>
+                </div>
+              </div>
+
+              {/* Google Login */}
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M21.35 12.23c0-.79-.07-1.55-.2-2.27H12v4.3h5.23a4.47 4.47 0 0 1-1.94 2.93v2.43h3.14c1.84-1.69 2.92-4.18 2.92-7.39z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 21.5c2.63 0 4.84-.87 6.45-2.35l-3.14-2.43c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.51A9.74 9.74 0 0 0 12 21.5z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M6.54 13.61A5.85 5.85 0 0 1 6.23 12c0-.56.1-1.1.31-1.61V7.88H3.3A9.75 9.75 0 0 0 2.25 12c0 1.57.38 3.05 1.05 4.12l3.24-2.51z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 6.36c1.43 0 2.71.49 3.72 1.46l2.79-2.79C16.83 3.48 14.63 2.5 12 2.5a9.74 9.74 0 0 0-8.7 5.38l3.24 2.51C7.31 8.08 9.46 6.36 12 6.36z"
+                  />
+                </svg>
+                Continue with Google
+              </button>
+
               <p className="text-center text-xs text-muted-foreground">
                 No account yet?{" "}
                 <button
                   type="button"
-                  onClick={() => setTab("register")}
-                  className="text-primary font-medium hover:text-accent transition-colors"
+                  onClick={() => {
+                    setLoginError("");
+                    setTab("register");
+                  }}
+                  className="text-primary font-medium"
                 >
                   Create one
                 </button>
@@ -318,108 +482,145 @@ export default function Auth() {
                 >
                   Create your account
                 </h1>
+
                 <p className="text-muted-foreground text-sm">
-                  Start planning your island escape today.
+                  Enter your information, then continue with Google.
                 </p>
               </div>
+
               {registerError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />{" "}
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   {registerError}
                 </div>
               )}
+
+              {/* Name */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1.5">
                     First name *
                   </label>
+
                   <input
                     type="text"
                     placeholder="Juan"
                     value={form.firstName}
                     onChange={(e) =>
-                      setForm((f) => ({ ...f, firstName: e.target.value }))
+                      setForm((f) => ({
+                        ...f,
+                        firstName: e.target.value,
+                      }))
                     }
                     className={inputClass}
                   />
                 </div>
+
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1.5">
                     Last name *
                   </label>
+
                   <input
                     type="text"
                     placeholder="Dela Cruz"
                     value={form.lastName}
                     onChange={(e) =>
-                      setForm((f) => ({ ...f, lastName: e.target.value }))
+                      setForm((f) => ({
+                        ...f,
+                        lastName: e.target.value,
+                      }))
                     }
                     className={inputClass}
                   />
                 </div>
               </div>
+
+              {/* Email */}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Email address *
                 </label>
+
                 <input
                   type="email"
                   placeholder="your@email.com"
                   value={form.email}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, email: e.target.value }))
+                    setForm((f) => ({
+                      ...f,
+                      email: e.target.value,
+                    }))
                   }
                   className={inputClass}
                 />
               </div>
+
+              {/* Phone & Nationality */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1.5">
                     Phone *
                   </label>
+
                   <input
                     type="tel"
                     placeholder="+63 9XX XXX XXXX"
                     value={form.phone}
                     onChange={(e) =>
-                      setForm((f) => ({ ...f, phone: e.target.value }))
+                      setForm((f) => ({
+                        ...f,
+                        phone: e.target.value,
+                      }))
                     }
                     className={inputClass}
                   />
                 </div>
+
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1.5">
                     Nationality
                   </label>
+
                   <input
                     type="text"
                     placeholder="Filipino"
                     value={form.nationality}
                     onChange={(e) =>
-                      setForm((f) => ({ ...f, nationality: e.target.value }))
+                      setForm((f) => ({
+                        ...f,
+                        nationality: e.target.value,
+                      }))
                     }
                     className={inputClass}
                   />
                 </div>
               </div>
+
+              {/* Password & Confirm Password */}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Password *
                 </label>
+
                 <div className="relative">
                   <input
                     type={showPwd ? "text" : "password"}
                     placeholder="Min. 8 characters"
                     value={form.password}
                     onChange={(e) =>
-                      setForm((f) => ({ ...f, password: e.target.value }))
+                      setForm((f) => ({
+                        ...f,
+                        password: e.target.value,
+                      }))
                     }
                     className={inputClass + " pr-10"}
                   />
+
                   <button
                     type="button"
                     onClick={() => setShowPwd(!showPwd)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                   >
                     {showPwd ? (
                       <EyeOff className="w-4 h-4" />
@@ -429,36 +630,86 @@ export default function Auth() {
                   </button>
                 </div>
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Confirm password *
                 </label>
+
                 <input
                   type="password"
                   placeholder="Repeat password"
                   value={form.confirmPassword}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, confirmPassword: e.target.value }))
+                    setForm((f) => ({
+                      ...f,
+                      confirmPassword: e.target.value,
+                    }))
                   }
                   className={inputClass}
                 />
               </div>
+
               <button
-                type="submit"
-                className="w-full bg-accent text-white py-3 rounded-xl text-sm font-medium hover:bg-accent/90 transition-colors mt-1"
+                type="button"
+                onClick={handleGoogleRegister}
+                className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
               >
                 Create Account
               </button>
+
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-border" />
+                </div>
+
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-background px-3 text-muted-foreground">
+                    OR
+                  </span>
+                </div>
+              </div>
+
+              {/* Google */}
+              <button
+                type="submit"
+                className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M21.35 12.23c0-.79-.07-1.55-.2-2.27H12v4.3h5.23a4.47 4.47 0 0 1-1.94 2.93v2.43h3.14c1.84-1.69 2.92-4.18 2.92-7.39z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 21.5c2.63 0 4.84-.87 6.45-2.35l-3.14-2.43c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.51A9.74 9.74 0 0 0 12 21.5z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M6.54 13.61A5.85 5.85 0 0 1 6.23 12c0-.56.1-1.1.31-1.61V7.88H3.3A9.75 9.75 0 0 0 2.25 12c0 1.57.38 3.05 1.05 4.12l3.24-2.51C7.31 8.08 9.46 6.36 12 6.36z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 6.36c1.43 0 2.71.49 3.72 1.46l2.79-2.79C16.83 3.48 14.63 2.5 12 2.5a9.74 9.74 0 0 0-8.7 5.38l3.24 2.51C7.31 8.08 9.46 6.36 12 6.36z"
+                  />
+                </svg>
+                Continue with Google
+              </button>
+
               <p className="text-center text-xs text-muted-foreground">
                 Already have an account?{" "}
                 <button
                   type="button"
-                  onClick={() => setTab("login")}
+                  onClick={() => {
+                    setRegisterError("");
+                    setTab("login");
+                  }}
                   className="text-primary font-medium hover:text-accent transition-colors"
                 >
                   Sign in
                 </button>
               </p>
+
               <p className="text-center text-[10px] text-muted-foreground/70">
                 By creating an account you agree to our{" "}
                 <a href="#" className="underline">
