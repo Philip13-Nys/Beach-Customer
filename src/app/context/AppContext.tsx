@@ -5,12 +5,7 @@ import {
   useEffect,
   ReactNode,
 } from "react";
-import {
-  Booking,
-  Notification,
-  sampleBookings,
-  sampleNotifications,
-} from "../data/mockData";
+
 import { auth, customerDb } from "../components/firebase";
 import {
   onAuthStateChanged,
@@ -21,7 +16,41 @@ import {
   createUserWithEmailAndPassword,
   sendEmailVerification,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+
+export interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  date: string;
+  read: boolean;
+}
+
+export interface Booking {
+  id: string;
+  roomId: string;
+  roomName: string;
+  roomImage: string;
+  checkIn: string;
+  checkOut: string;
+  guests: number;
+  nights: number;
+  roomRate: number;
+  addOns: { name: string; price: number }[];
+  totalPrice: number;
+
+  status: "confirmed" | "pending" | "cancelled" | "completed";
+  paymentStatus: "paid" | "partial" | "unpaid";
+
+  paymentMethod?: string;
+  transactionId?: string;
+  paidAt?: any;
+
+  bookingRef: string;
+  createdAt: string;
+  specialRequests?: string;
+}
 
 export interface User {
   id: string;
@@ -79,25 +108,9 @@ const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [bookings, setBookings] = useState<Booking[]>(() => {
-    try {
-      return JSON.parse(
-        localStorage.getItem("cbr_bookings") || JSON.stringify(sampleBookings),
-      );
-    } catch {
-      return sampleBookings;
-    }
-  });
-  const [notifications, setNotifications] = useState<Notification[]>(() => {
-    try {
-      return JSON.parse(
-        localStorage.getItem("cbr_notifs") ||
-          JSON.stringify(sampleNotifications),
-      );
-    } catch {
-      return sampleNotifications;
-    }
-  });
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
   const [pendingPayment, setPendingPayment] = useState<Booking | null>(null);
 
   useEffect(() => {
@@ -166,13 +179,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("cbr_bookings", JSON.stringify(bookings));
-  }, [bookings]);
-  useEffect(() => {
-    localStorage.setItem("cbr_notifs", JSON.stringify(notifications));
-  }, [notifications]);
-
   const register = async (data: {
     firstName: string;
     lastName: string;
@@ -219,9 +225,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const firebaseUser = result.user;
 
+      // Get the latest verification status
+      await firebaseUser.reload();
+
       if (!firebaseUser.emailVerified) {
         await signOut(auth);
-
         throw new Error("EMAIL_NOT_VERIFIED");
       }
 
@@ -400,30 +408,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ]);
   };
 
-  const cancelBooking = (id: string) => {
-    setBookings((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)),
-    );
-    const booking = bookings.find((b) => b.id === id);
-    if (booking) {
-      setNotifications((prev) => [
-        {
-          id: "n_" + Date.now(),
-          type: "booking",
-          title: "Booking Cancelled",
-          message: `Your reservation for ${booking.roomName} (Ref: ${booking.bookingRef}) has been cancelled.`,
-          date: new Date().toISOString().split("T")[0],
-          read: false,
-        },
-        ...prev,
-      ]);
+  const cancelBooking = async (id: string) => {
+    try {
+      await updateDoc(doc(customerDb, "Bookings", id), {
+        status: "cancelled",
+      });
+
+      setBookings((prev) =>
+        prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)),
+      );
+
+      const booking = bookings.find((b) => b.id === id);
+
+      if (booking) {
+        setNotifications((prev) => [
+          {
+            id: "n_" + Date.now(),
+            type: "booking",
+            title: "Booking Cancelled",
+            message: `Your reservation for ${booking.roomName} (Ref: ${booking.bookingRef}) has been cancelled.`,
+            date: new Date().toISOString().split("T")[0],
+            read: false,
+          },
+          ...prev,
+        ]);
+      }
+    } catch (error) {
+      console.error("Error cancelling booking:", error);
+      throw error;
     }
   };
 
-  const modifyBooking = (id: string, updates: Partial<Booking>) => {
-    setBookings((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, ...updates } : b)),
-    );
+  const modifyBooking = async (id: string, updates: Partial<Booking>) => {
+    try {
+      await updateDoc(doc(customerDb, "Bookings", id), updates);
+
+      setBookings((prev) =>
+        prev.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+      );
+    } catch (error) {
+      console.error("Error modifying booking:", error);
+      throw error;
+    }
   };
 
   const markNotificationRead = (id: string) => {

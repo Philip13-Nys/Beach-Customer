@@ -1,0 +1,43 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /Users/{userId} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == userId;
+    }
+
+    match /Bookings/{bookingId} {
+
+      allow create: if request.auth != null;
+
+      allow read: if true;
+
+      allow update: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow delete: if false;
+    }
+
+    match /roomTypes/{roomTypeId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /rooms/{roomId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /services/{serviceId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /packages/{packageId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

@@ -161,16 +161,16 @@ export default function Rooms() {
               </label>
               <input
                 type="range"
-                min={3000}
-                max={15000}
+                min={0}
+                max={50000}
                 step={500}
                 value={maxPrice}
                 onChange={(e) => setMaxPrice(Number(e.target.value))}
                 className="w-full accent-primary"
               />
               <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                <span>₱3,000</span>
-                <span>₱15,000</span>
+                <span>0</span>
+                <span>₱50,000</span>
               </div>
             </div>
 

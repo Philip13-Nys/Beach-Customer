@@ -1,6 +1,5 @@
 import { Link, useNavigate } from "react-router";
-import { useApp } from "../context/AppContext";
-import { Booking } from "../data/mockData";
+import { Booking, useApp } from "../context/AppContext";
 import {
   Calendar,
   Users,
@@ -35,7 +34,7 @@ export default function BookingHistory() {
 }
 
 function BookingHistoryContent() {
-  const { cancelBooking, modifyBooking } = useApp();
+  const { user } = useApp();
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [filter, setFilter] = useState<
@@ -74,15 +73,28 @@ function BookingHistoryContent() {
   }, []);
 
   const handleCancel = async (id: string) => {
-    await updateDoc(doc(customerDb, "Bookings", id), {
-      status: "cancelled",
-    });
+    try {
+      await updateDoc(doc(customerDb, "Bookings", id), {
+        status: "cancelled",
+      });
 
-    setCancelTarget(null);
+      setBookings((prev) =>
+        prev.map((booking) =>
+          booking.id === id ? { ...booking, status: "cancelled" } : booking,
+        ),
+      );
+
+      setCancelTarget(null);
+    } catch (error) {
+      console.error("Error cancelling booking:", error);
+    }
   };
 
-  const handleModify = () => {
-    if (!modifyTarget || !modifyDates.checkIn || !modifyDates.checkOut) return;
+  const handleModify = async () => {
+    if (!modifyTarget || !modifyDates.checkIn || !modifyDates.checkOut) {
+      return;
+    }
+
     const nights = Math.max(
       1,
       Math.ceil(
@@ -91,19 +103,45 @@ function BookingHistoryContent() {
           86400000,
       ),
     );
-    modifyBooking(modifyTarget.id, {
-      checkIn: modifyDates.checkIn,
-      checkOut: modifyDates.checkOut,
-      nights,
-      totalPrice:
-        modifyTarget.roomRate * nights +
-        modifyTarget.addOns.reduce((s, a) => s + a.price, 0),
-    });
-    setModifySuccess(true);
-    setTimeout(() => {
-      setModifyTarget(null);
-      setModifySuccess(false);
-    }, 2000);
+
+    const addOnsTotal = (modifyTarget.addOns || []).reduce(
+      (sum, addon) => sum + addon.price,
+      0,
+    );
+
+    const totalPrice = modifyTarget.roomRate * nights + addOnsTotal;
+
+    try {
+      await updateDoc(doc(customerDb, "Bookings", modifyTarget.id), {
+        checkIn: modifyDates.checkIn,
+        checkOut: modifyDates.checkOut,
+        nights,
+        totalPrice,
+      });
+
+      setBookings((prev) =>
+        prev.map((booking) =>
+          booking.id === modifyTarget.id
+            ? {
+                ...booking,
+                checkIn: modifyDates.checkIn,
+                checkOut: modifyDates.checkOut,
+                nights,
+                totalPrice,
+              }
+            : booking,
+        ),
+      );
+
+      setModifySuccess(true);
+
+      setTimeout(() => {
+        setModifyTarget(null);
+        setModifySuccess(false);
+      }, 2000);
+    } catch (error) {
+      console.error("Error modifying booking:", error);
+    }
   };
 
   const statusColors: Record<string, string> = {
@@ -260,7 +298,9 @@ function BookingHistoryContent() {
                           booking.status.slice(1)}
                       </span>
                       <span
-                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${paymentColors[booking.paymentStatus]}`}
+                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                          paymentColors[booking.paymentStatus]
+                        }`}
                       >
                         {booking.paymentStatus.charAt(0).toUpperCase() +
                           booking.paymentStatus.slice(1)}
@@ -304,12 +344,16 @@ function BookingHistoryContent() {
                       <Eye className="w-3.5 h-3.5" /> View Details
                     </Link>
 
-                    {booking.paymentStatus === "unpaid" && (
+                    {(booking.paymentStatus === "unpaid" ||
+                      booking.paymentStatus === "partial") && (
                       <Link
-                        to="/payment"
+                        to={`/payment?bookingId=${booking.id}`}
                         className="flex items-center gap-1.5 text-xs font-medium bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent/90 transition-colors"
                       >
-                        <CreditCard className="w-3.5 h-3.5" /> Pay Now
+                        <CreditCard className="w-3.5 h-3.5" />
+                        {booking.paymentStatus === "partial"
+                          ? "Pay Balance"
+                          : "Pay Now"}
                       </Link>
                     )}
 

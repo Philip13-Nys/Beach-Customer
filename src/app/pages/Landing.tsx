@@ -1,7 +1,8 @@
-import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useApp } from "../context/AppContext";
-import { rooms, services, sampleReviews } from "../data/mockData";
+import { useEffect, useState } from "react";
+import { collection, getDocs, query, limit } from "firebase/firestore";
+import { customerDb } from "../components/firebase";
 import {
   Search,
   Star,
@@ -17,6 +18,39 @@ import {
   Phone,
   Mail,
 } from "lucide-react";
+
+interface Room {
+  id: string;
+  name: string;
+  type: string;
+  images?: string[];
+  image?: string;
+  price: number;
+  capacity: number;
+  rating?: number;
+  reviews?: number;
+  available?: boolean;
+}
+
+interface Service {
+  id: string;
+  name: string;
+  category: string;
+  image: string;
+  price: number;
+  duration: string;
+}
+
+interface Review {
+  id: string;
+  guestName: string;
+  guestAvatar?: string;
+  roomName?: string;
+  serviceName?: string;
+  rating: number;
+  comment: string;
+  date: string;
+}
 
 function StarRating({ rating }: { rating: number }) {
   return (
@@ -38,6 +72,49 @@ export default function Landing() {
   const [checkOut, setCheckOut] = useState("");
   const [guests, setGuests] = useState("2");
 
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadLandingData = async () => {
+      try {
+        const [roomsSnapshot, servicesSnapshot, reviewsSnapshot] =
+          await Promise.all([
+            getDocs(query(collection(customerDb, "roomTypes"), limit(6))),
+            getDocs(query(collection(customerDb, "services"), limit(6))),
+            getDocs(query(collection(customerDb, "reviews"), limit(2))),
+          ]);
+
+        const roomData = roomsSnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Room[];
+
+        const serviceData = servicesSnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Service[];
+
+        const reviewData = reviewsSnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Review[];
+
+        setRooms(roomData);
+        setServices(serviceData);
+        setReviews(reviewData);
+      } catch (error) {
+        console.error("Error loading landing page data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadLandingData();
+  }, []);
+
   const handleSearch = () => {
     const params = new URLSearchParams();
     if (checkIn) params.set("checkIn", checkIn);
@@ -49,6 +126,7 @@ export default function Landing() {
   return (
     <div className="bg-background">
       {/* Hero Section */}
+
       <section className="relative min-h-[92vh] flex items-center">
         <div
           className="absolute inset-0 bg-cover bg-center"
@@ -193,62 +271,76 @@ export default function Landing() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {rooms.slice(0, 3).map((room) => (
-            <Link
-              key={room.id}
-              to={`/rooms/${room.id}`}
-              className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-border"
-            >
-              <div className="relative h-52 overflow-hidden">
-                <img
-                  src={room.images[0]}
-                  alt={room.name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute top-3 left-3">
-                  <span className="px-2.5 py-1 bg-white/90 rounded-full text-xs font-medium text-primary capitalize">
-                    {room.type.replace("-", " ")}
-                  </span>
-                </div>
-                {!room.available && (
-                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                    <span className="text-white font-semibold text-sm bg-black/60 px-3 py-1 rounded-full">
-                      Fully Booked
+          {rooms.slice(0, 3).map((room) => {
+            const roomImage =
+              room.images?.[0] ||
+              room.image ||
+              "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800";
+
+            return (
+              <Link
+                key={room.id}
+                to={`/rooms/${room.id}`}
+                className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-border"
+              >
+                <div className="relative h-52 overflow-hidden">
+                  <img
+                    src={roomImage}
+                    alt={room.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+
+                  <div className="absolute top-3 left-3">
+                    <span className="px-2.5 py-1 bg-white/90 rounded-full text-xs font-medium text-primary capitalize">
+                      {room.type?.replace("-", " ")}
                     </span>
                   </div>
-                )}
-              </div>
-              <div className="p-5">
-                <div className="flex items-start justify-between mb-2">
+
+                  {room.available === false && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <span className="text-white font-semibold text-sm bg-black/60 px-3 py-1 rounded-full">
+                        Fully Booked
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-5">
                   <h3
                     className="font-semibold text-foreground text-base leading-tight"
                     style={{ fontFamily: "var(--font-display)" }}
                   >
                     {room.name}
                   </h3>
-                </div>
-                <div className="flex items-center gap-2 mb-3">
-                  <StarRating rating={room.rating} />
-                  <span className="text-xs text-muted-foreground">
-                    ({room.reviews})
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-accent font-bold text-lg">
-                      ₱{room.price.toLocaleString()}
-                    </span>
-                    <span className="text-muted-foreground text-xs">
-                      /night
+
+                  <div className="flex items-center gap-2 mb-3 mt-2">
+                    <StarRating rating={room.rating || 0} />
+
+                    <span className="text-xs text-muted-foreground">
+                      ({room.reviews || 0})
                     </span>
                   </div>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Users className="w-3.5 h-3.5" /> Up to {room.capacity}
-                  </span>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-accent font-bold text-lg">
+                        ₱{Number(room.price || 0).toLocaleString()}
+                      </span>
+
+                      <span className="text-muted-foreground text-xs">
+                        /night
+                      </span>
+                    </div>
+
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5" />
+                      Up to {room.capacity}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="text-center mt-8 sm:hidden">
@@ -313,7 +405,7 @@ export default function Landing() {
                   </h3>
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-accent font-semibold text-sm">
-                      ₱{svc.price.toLocaleString()}
+                      ₱{Number(svc.price || 0).toLocaleString()}
                     </span>
                     <span className="text-white/70 text-xs">
                       {svc.duration}
@@ -402,14 +494,18 @@ export default function Landing() {
             </h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {sampleReviews.slice(0, 2).map((review) => (
+            {reviews.slice(0, 2).map((review) => (
               <div
                 key={review.id}
                 className="bg-white/10 backdrop-blur rounded-2xl p-6 border border-white/10"
               >
                 <div className="flex items-center gap-3 mb-4">
                   <img
-                    src={review.guestAvatar}
+                    src={
+                      review.guestAvatar ||
+                      "https://ui-avatars.com/api/?name=" +
+                        encodeURIComponent(review.guestName)
+                    }
                     alt={review.guestName}
                     className="w-11 h-11 rounded-full object-cover ring-2 ring-accent/50"
                   />

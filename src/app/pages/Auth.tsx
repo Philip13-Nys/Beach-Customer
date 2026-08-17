@@ -484,7 +484,7 @@ export default function Auth() {
                 </h1>
 
                 <p className="text-muted-foreground text-sm">
-                  Enter your information, then continue with Google.
+                  Enter your information to create your account.
                 </p>
               </div>
 
@@ -651,9 +651,8 @@ export default function Auth() {
               </div>
 
               <button
-                type="button"
-                onClick={handleGoogleRegister}
-                className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
+                type="submit"
+                className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
               >
                 Create Account
               </button>
@@ -672,7 +671,8 @@ export default function Auth() {
 
               {/* Google */}
               <button
-                type="submit"
+                type="button"
+                onClick={handleGoogleRegister}
                 className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">

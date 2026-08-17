@@ -19,6 +19,7 @@ import {
   serverTimestamp,
   query,
   where,
+  updateDoc,
 } from "firebase/firestore";
 
 type RoomType = {
@@ -56,6 +57,8 @@ export default function BookingPage() {
   const [addOnServices, setAddOnServices] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([]);
   const [loadingAddOns, setLoadingAddOns] = useState(true);
+  const [availableRooms, setAvailableRooms] = useState(0);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
 
   useEffect(() => {
     const loadAddOns = async () => {
@@ -137,14 +140,18 @@ export default function BookingPage() {
     loadRoom();
   }, [id]);
 
-  // ✅ AUTH REDIRECT MUST BE BEFORE ANY CONDITIONAL RETURN
+  useEffect(() => {
+    if (!room) return;
+
+    checkRoomAvailability();
+  }, [room, checkIn, checkOut]);
+
   useEffect(() => {
     if (!loadingRoom && !user) {
       navigate("/auth", { replace: true });
     }
   }, [user, loadingRoom, navigate]);
 
-  // ✅ NOW conditional returns are okay
   if (loadingRoom) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -216,12 +223,80 @@ export default function BookingPage() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   };
+  const checkRoomAvailability = async () => {
+    if (!room || !checkIn || !checkOut) {
+      return false;
+    }
+
+    if (checkOut <= checkIn) {
+      setAvailableRooms(0);
+      return false;
+    }
+
+    setCheckingAvailability(true);
+
+    try {
+      const bookingsQuery = query(
+        collection(customerDb, "Bookings"),
+        where("roomId", "==", room.id),
+      );
+
+      const bookingsSnap = await getDocs(bookingsQuery);
+
+      let bookedRooms = 0;
+
+      bookingsSnap.forEach((bookingDoc) => {
+        const booking = bookingDoc.data();
+
+        // Do not count cancelled bookings
+        if (booking.status === "cancelled") {
+          return;
+        }
+
+        const existingCheckIn = new Date(`${booking.checkIn}T00:00:00`);
+
+        const existingCheckOut = new Date(`${booking.checkOut}T00:00:00`);
+
+        const selectedCheckIn = new Date(`${checkIn}T00:00:00`);
+
+        const selectedCheckOut = new Date(`${checkOut}T00:00:00`);
+
+        const overlaps =
+          selectedCheckIn < existingCheckOut &&
+          selectedCheckOut > existingCheckIn;
+
+        if (overlaps) {
+          bookedRooms++;
+        }
+      });
+
+      const remainingRooms = Math.max(0, room.count - bookedRooms);
+
+      setAvailableRooms(remainingRooms);
+
+      return remainingRooms > 0;
+    } catch (error) {
+      alert("Unable to check room availability.");
+      return false;
+    } finally {
+      setCheckingAvailability(false);
+    }
+  };
 
   const handleConfirm = async () => {
     const currentUser = auth.currentUser;
 
     if (!currentUser) {
       alert("Please log in first.");
+      return;
+    }
+
+    // Check availability one more time before creating booking
+    const stillAvailable = await checkRoomAvailability();
+
+    if (!stillAvailable) {
+      alert("Sorry, this room is no longer available for the selected dates.");
+      setStep("form");
       return;
     }
 
@@ -233,6 +308,7 @@ export default function BookingPage() {
       alert("Check-out date must be after check-in date.");
       return;
     }
+
     // Validate guests
     if (guests < 1 || guests > room.maxGuests) {
       alert(`This room allows a maximum of ${room.maxGuests} guests.`);
@@ -247,40 +323,35 @@ export default function BookingPage() {
 
       if (!userSnap.exists()) {
         alert("Your user profile was not found in the database.");
-        console.error("User document does not exist:", currentUser.uid);
         return;
       }
 
       const userData = userSnap.data();
 
-      console.log("User data:", userData);
+      const customerName =
+        `${userData.firstName || ""} ${userData.lastName || ""}`.trim();
+
+      const customerEmail = userData.email || currentUser.email || "";
+
+      const customerPhone = userData.phone || "";
 
       const bookingData = {
         userId: currentUser.uid,
-
-        customerName:
-          `${userData.firstName || ""} ${userData.lastName || ""}`.trim(),
-        customerEmail: userData.email || currentUser.email || "",
-        customerPhone: userData.phone || "",
-
+        customerName,
+        customerEmail,
+        customerPhone,
         roomId: room.id,
         roomName: room.name,
         roomImage: room.image,
-
         checkIn,
         checkOut,
         guests,
         nights,
-
         roomRate: room.basePrice,
-
         addOns,
-
         totalPrice: total,
-
         status: "pending",
         paymentStatus: "unpaid",
-
         bookingRef:
           "CBR-" +
           new Date().getFullYear() +
@@ -292,16 +363,35 @@ export default function BookingPage() {
         createdAt: serverTimestamp(),
       };
 
-      console.log("Booking data:", bookingData);
-
-      const docRef = await addDoc(
+      // Save booking to CUSTOMER database
+      const bookingRef = await addDoc(
         collection(customerDb, "Bookings"),
         bookingData,
       );
 
-      console.log("Booking successfully created:", docRef.id);
+      console.log("Customer booking created:", bookingRef.id);
 
-      navigate(`/booking-confirmation/${docRef.id}`);
+      const reservationData = {
+        bookingId: bookingRef.id,
+        roomTypeId: room.id,
+        roomName: room.name,
+        checkIn,
+        checkOut,
+        guests,
+        customerName,
+        customerEmail,
+        status: "reserved",
+        createdAt: serverTimestamp(),
+      };
+
+      const reservationRef = await addDoc(
+        collection(db, "reservations"),
+        reservationData,
+      );
+
+      console.log("Admin reservation created:", reservationRef.id);
+
+      navigate(`/booking-confirmation/${bookingRef.id}`);
     } catch (error: any) {
       console.error("BOOKING ERROR:", error);
 
@@ -493,6 +583,28 @@ export default function BookingPage() {
                 />
               </div>
             </div>
+
+            {checkingAvailability ? (
+              <div className="mt-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
+                <p className="text-sm text-gray-600">
+                  Checking room availability...
+                </p>
+              </div>
+            ) : availableRooms > 0 ? (
+              <div className="mt-3 p-3 rounded-xl bg-green-50 border border-green-200">
+                <p className="text-sm font-medium text-green-700">
+                  {availableRooms} room
+                  {availableRooms !== 1 ? "s" : ""} available for these dates.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-3 p-3 rounded-xl bg-red-50 border border-red-200">
+                <p className="text-sm font-medium text-red-700">
+                  No rooms available for these dates.
+                </p>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-muted-foreground" /> Number
@@ -775,10 +887,27 @@ export default function BookingPage() {
               </div>
 
               <button
-                onClick={() => setStep("confirm")}
-                className="w-full bg-accent text-white font-semibold py-3.5 rounded-xl hover:bg-accent/90 transition-colors text-sm"
+                disabled={checkingAvailability || availableRooms <= 0}
+                onClick={async () => {
+                  const available = await checkRoomAvailability();
+
+                  if (!available) {
+                    return;
+                  }
+
+                  setStep("confirm");
+                }}
+                className={`w-full font-semibold py-3.5 rounded-xl transition-colors text-sm ${
+                  checkingAvailability || availableRooms <= 0
+                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    : "bg-accent text-white hover:bg-accent/90"
+                }`}
               >
-                Review & Confirm
+                {checkingAvailability
+                  ? "Checking Availability..."
+                  : availableRooms <= 0
+                    ? "No Rooms Available"
+                    : "Review & Confirm"}
               </button>
             </div>
           </div>

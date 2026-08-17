@@ -38,40 +38,8 @@ export interface Review {
   serviceName?: string;
 }
 
-export interface Notification {
-  id: string;
-  type: "booking" | "payment" | "reminder" | "promo" | "system";
-  title: string;
-  message: string;
-  date: string;
-  read: boolean;
-}
-
-export interface Booking {
-  id: string;
-  roomId: string;
-  roomName: string;
-  roomImage: string;
-  checkIn: string;
-  checkOut: string;
-  guests: number;
-  nights: number;
-  roomRate: number;
-  addOns: { name: string; price: number }[];
-  totalPrice: number;
-  status: "confirmed" | "pending" | "cancelled" | "completed";
-  paymentStatus: "paid" | "partial" | "unpaid";
-  bookingRef: string;
-  createdAt: string;
-  specialRequests?: string;
-}
-
 export const rooms: Room[] = [];
 
 export const services: Service[] = [];
 
 export const sampleReviews: Review[] = [];
-
-export const sampleBookings: Booking[] = [];
-
-export const sampleNotifications: Notification[] = [];

@@ -1,0 +1,121 @@
+[debug] [2026-08-17T16:55:05.785Z] ----------------------------------------------------------------------
+[debug] [2026-08-17T16:55:05.788Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\Philip\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js init
+[debug] [2026-08-17T16:55:05.789Z] CLI Version:   15.27.0
+[debug] [2026-08-17T16:55:05.789Z] Platform:      win32
+[debug] [2026-08-17T16:55:05.789Z] Node Version:  v24.17.0
+[debug] [2026-08-17T16:55:05.789Z] Detected Agent: unknown
+[debug] [2026-08-17T16:55:05.789Z] Time:          Tue Aug 18 2026 00:55:05 GMT+0800 (Philippine Standard Time)
+[debug] [2026-08-17T16:55:05.789Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-08-17T16:55:05.803Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[info] 
+     ######## #### ########  ######## ########     ###     ######  ########
+     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
+     ######    ##  ########  ######   ########  #########  ######  ######
+     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
+     ##       #### ##     ## ######## ########  ##     ##  ######  ########
+
+You're about to initialize a Firebase project in this directory:
+
+  C:\Users\Philip\OneDrive\Documents\capstone\codes\Customer Module for Resort
+
+Before we get started, keep in mind:
+
+  * You are initializing within an existing Firebase project directory
+
+[debug] [2026-08-17T16:55:36.527Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-08-17T16:55:36.528Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}
+[info] 
+=== Project Setup
+[info] 
+[info] First, let's associate this project directory with a Firebase project.
+[info] You can create multiple project aliases by running firebase use --add, 
+[info] 
+[debug] [2026-08-17T16:56:58.790Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-08-17T16:56:58.790Z] > authorizing via signed-in user (miguelphilip246@gmail.com)
+[debug] [2026-08-17T16:56:58.793Z] Checked if tokens are valid: false, expires at: 1786946210903
+[debug] [2026-08-17T16:56:58.794Z] Checked if tokens are valid: false, expires at: 1786946210903
+[debug] [2026-08-17T16:56:58.795Z] > refreshing access token with scopes: []
+[debug] [2026-08-17T16:56:58.797Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-08-17T16:56:58.797Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-08-17T16:56:58.949Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-08-17T16:56:58.949Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-08-17T16:56:58.962Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/customeraccount-ce2ae [none]
+[debug] [2026-08-17T16:56:59.302Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/customeraccount-ce2ae 200
+[debug] [2026-08-17T16:56:59.302Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/customeraccount-ce2ae {"projectId":"customeraccount-ce2ae","projectNumber":"9548262291","displayName":"CustomerAccount","name":"projects/customeraccount-ce2ae","resources":{"hostingSite":"customeraccount-ce2ae"},"state":"ACTIVE","labels":{"firebase":"enabled"},"etag":"1_d1c0e775-8345-4b02-9a71-507ccd623615"}
+[info] i  Using project customeraccount-ce2ae (CustomerAccount) . 
+[info] 
+=== Firestore Setup
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[debug] [2026-08-17T16:56:59.316Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:56:59.316Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:56:59.317Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/customeraccount-ce2ae/services/firestore.googleapis.com [none]
+[debug] [2026-08-17T16:56:59.317Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/customeraccount-ce2ae/services/firestore.googleapis.com  x-goog-user-project=customeraccount-ce2ae
+[debug] [2026-08-17T16:57:00.691Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/customeraccount-ce2ae/services/firestore.googleapis.com 200
+[debug] [2026-08-17T16:57:00.691Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/customeraccount-ce2ae/services/firestore.googleapis.com [omitted]
+[info] +  firestore: required API firestore.googleapis.com is enabled 
+[debug] [2026-08-17T16:57:00.697Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:57:00.697Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:57:00.698Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/customeraccount-ce2ae/databases [none]
+[debug] [2026-08-17T16:57:01.483Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/customeraccount-ce2ae/databases 200
+[debug] [2026-08-17T16:57:01.483Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/customeraccount-ce2ae/databases {"databases":[{"name":"projects/customeraccount-ce2ae/databases/(default)","uid":"bdfd20c0-3f7d-4b35-bddd-8d1da444de9a","createTime":"2026-07-16T05:49:04.467715Z","updateTime":"2026-07-16T05:49:04.467715Z","locationId":"nam5","type":"FIRESTORE_NATIVE","concurrencyMode":"PESSIMISTIC","versionRetentionPeriod":"3600s","earliestVersionTime":"2026-08-17T15:57:03.882260Z","appEngineIntegrationMode":"DISABLED","keyPrefix":"s","pointInTimeRecoveryEnablement":"POINT_IN_TIME_RECOVERY_DISABLED","deleteProtectionState":"DELETE_PROTECTION_DISABLED","databaseEdition":"STANDARD","freeTier":true,"realtimeUpdatesMode":"REALTIME_UPDATES_MODE_ENABLED","etag":"IKHZ7vmQqJYDMMSD1urT1pUD"}]}
+[info] 
+[info] Firestore Security Rules allow you to define how and when to allow
+[info] requests. You can keep these rules in your project directory
+[info] and publish them with firebase deploy.
+[info] 
+[debug] [2026-08-17T16:57:12.410Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:57:12.410Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:57:12.411Z] >>> [apiv2][query] GET https://firebaserules.googleapis.com/v1/projects/customeraccount-ce2ae/releases pageSize=10&pageToken=
+[debug] [2026-08-17T16:57:13.754Z] <<< [apiv2][status] GET https://firebaserules.googleapis.com/v1/projects/customeraccount-ce2ae/releases 200
+[debug] [2026-08-17T16:57:13.754Z] <<< [apiv2][body] GET https://firebaserules.googleapis.com/v1/projects/customeraccount-ce2ae/releases {"releases":[{"name":"projects/customeraccount-ce2ae/releases/cloud.firestore","rulesetName":"projects/customeraccount-ce2ae/rulesets/c24bb09d-cc14-4096-9898-3abea28cb917","createTime":"2026-07-16T05:49:09.587686Z","updateTime":"2026-08-17T15:42:15.016308Z"}]}
+[debug] [2026-08-17T16:57:13.754Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:57:13.754Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:57:13.754Z] >>> [apiv2][query] GET https://firebaserules.googleapis.com/v1/projects/customeraccount-ce2ae/rulesets/c24bb09d-cc14-4096-9898-3abea28cb917 [none]
+[debug] [2026-08-17T16:57:14.834Z] <<< [apiv2][status] GET https://firebaserules.googleapis.com/v1/projects/customeraccount-ce2ae/rulesets/c24bb09d-cc14-4096-9898-3abea28cb917 200
+[debug] [2026-08-17T16:57:14.834Z] <<< [apiv2][body] GET https://firebaserules.googleapis.com/v1/projects/customeraccount-ce2ae/rulesets/c24bb09d-cc14-4096-9898-3abea28cb917 [omitted]
+[info] i  Downloaded the existing Firestore Security Rules from the Firebase console 
+[info] 
+[info] Firestore indexes allow you to perform complex queries while
+[info] maintaining performance that scales with the size of the result
+[info] set. You can keep index definitions in your project directory
+[info] and publish them with firebase deploy.
+[info] 
+[debug] [2026-08-17T16:57:21.991Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:57:21.991Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:57:21.992Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:57:21.992Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:57:21.993Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/customeraccount-ce2ae/databases/(default)/collectionGroups/-/indexes [none]
+[debug] [2026-08-17T16:57:21.997Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/customeraccount-ce2ae/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* [none]
+[debug] [2026-08-17T16:57:23.383Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/customeraccount-ce2ae/databases/(default)/collectionGroups/-/indexes 200
+[debug] [2026-08-17T16:57:23.383Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/customeraccount-ce2ae/databases/(default)/collectionGroups/-/indexes {}
+[debug] [2026-08-17T16:57:23.384Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/customeraccount-ce2ae/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* 200
+[debug] [2026-08-17T16:57:23.384Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/customeraccount-ce2ae/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* {"fields":[{"name":"projects/customeraccount-ce2ae/databases/(default)/collectionGroups/__default__/fields/*","indexConfig":{"indexes":[{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","order":"ASCENDING"}],"state":"READY"},{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","order":"DESCENDING"}],"state":"READY"},{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","arrayConfig":"CONTAINS"}],"state":"READY"}]}}]}
+[info] i  Downloaded the existing Firestore indexes from the Firebase console 
+[info] +  Wrote firestore.rules 
+[info] +  Wrote firestore.indexes.json 
+[info] 
+=== Hosting Setup
+[debug] [2026-08-17T16:58:02.339Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:58:02.339Z] Checked if tokens are valid: true, expires at: 1786989417949
+[debug] [2026-08-17T16:58:02.339Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/customeraccount-ce2ae [none]
+[debug] [2026-08-17T16:58:02.665Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/customeraccount-ce2ae 200
+[debug] [2026-08-17T16:58:02.665Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/customeraccount-ce2ae {"projectId":"customeraccount-ce2ae","projectNumber":"9548262291","displayName":"CustomerAccount","name":"projects/customeraccount-ce2ae","resources":{"hostingSite":"customeraccount-ce2ae"},"state":"ACTIVE","labels":{"firebase":"enabled"},"etag":"1_d1c0e775-8345-4b02-9a71-507ccd623615"}
+[info] 
+[info] Your public directory is the folder (relative to your project directory) that
+[info] will contain Hosting assets to be uploaded with firebase deploy. If you
+[info] have a build process for your assets, use your build's output directory.
+[info] 
+[debug] [2026-08-17T16:59:44.161Z] ExitPromptError: User force closed the prompt with SIGINT
+    at Interface.sigint (C:\Users\Philip\AppData\Roaming\npm\node_modules\firebase-tools\node_modules\@inquirer\core\dist\commonjs\lib\create-prompt.js:101:37)
+    at Interface.emit (node:events:509:28)
+    at [_ttyWrite] [as _ttyWrite] (node:internal/readline/interface:1327:18)
+    at ReadStream.onkeypress (node:internal/readline/interface:284:20)
+    at ReadStream.emit (node:events:521:24)
+    at emitKeys (node:internal/readline/utils:371:14)
+    at emitKeys.next (<anonymous>)
+    at ReadStream.onData (node:internal/readline/emitKeypressEvents:64:36)
+    at ReadStream.emit (node:events:509:28)
+    at addChunk (node:internal/streams/readable:563:12)
+[error] 
+[error] Error: An unexpected error has occurred.
