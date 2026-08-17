@@ -132,11 +132,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email.trim(),
+        password,
+      );
+
+      console.log("Login successful:", userCredential.user.uid);
+      console.log("Email:", userCredential.user.email);
 
       return true;
-    } catch (error) {
-      console.error("Login error:", error);
+    } catch (error: any) {
+      console.error("Firebase Login Error");
+      console.error("Code:", error.code);
+      console.error("Message:", error.message);
 
       return false;
     }
