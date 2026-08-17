@@ -112,12 +112,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const snap = await getDoc(userRef);
 
         if (!snap.exists()) {
-          console.error(
-            "User profile not found in Firestore:",
-            firebaseUser.uid,
-          );
+          const newUser = {
+            firstName: firebaseUser.displayName?.split(" ")[0] || "",
+            lastName:
+              firebaseUser.displayName?.split(" ").slice(1).join(" ") || "",
+            email: firebaseUser.email || "",
+            phone: "",
+            nationality: "",
+            avatar: firebaseUser.photoURL || "",
+            memberSince: new Date().toLocaleDateString("en-US", {
+              month: "long",
+              year: "numeric",
+            }),
+            createdAt: new Date(),
+            provider: "google",
+          };
 
-          setUser(null);
+          await setDoc(userRef, newUser);
+
+          setUser({
+            id: firebaseUser.uid,
+            firstName: newUser.firstName,
+            lastName: newUser.lastName,
+            email: newUser.email,
+            phone: newUser.phone,
+            nationality: newUser.nationality,
+            avatar: newUser.avatar,
+            memberSince: newUser.memberSince,
+          });
+
           return;
         }
 
@@ -166,9 +189,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
 
       const firebaseUser = result.user;
-
       await sendEmailVerification(firebaseUser);
-
       await setDoc(doc(customerDb, "Users", firebaseUser.uid), {
         firstName: data.firstName,
         lastName: data.lastName,
@@ -223,27 +244,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const firebaseUser = result.user;
 
-      const userRef = doc(customerDb, "Users", firebaseUser.uid);
-      const userSnap = await getDoc(userRef);
-
-      if (!userSnap.exists()) {
-        // Google account is valid, but not registered in your resort system
-        await signOut(auth);
-
-        alert(
-          "This Google account is not registered. Please use Create Account first.",
-        );
-
-        return false;
-      }
-
       console.log("Google login successful:", firebaseUser.uid);
+      console.log("Google email:", firebaseUser.email);
 
       return true;
     } catch (error: any) {
       console.error("Google Login Error:", error);
 
-      return false;
+      throw error;
     }
   };
 
