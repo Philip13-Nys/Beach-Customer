@@ -240,17 +240,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
         prompt: "select_account",
       });
 
+      // Sign in with Google
       const result = await signInWithPopup(auth, provider);
-
       const firebaseUser = result.user;
 
-      console.log("Google login successful:", firebaseUser.uid);
-      console.log("Google email:", firebaseUser.email);
+      console.log("Google UID:", firebaseUser.uid);
+      console.log("Google Email:", firebaseUser.email);
+
+      if (!firebaseUser.email) {
+        throw new Error("Google account does not have an email.");
+      }
+
+      // Firestore document
+      const userRef = doc(customerDb, "Users", firebaseUser.uid);
+
+      // Check if profile already exists
+      const userSnap = await getDoc(userRef);
+
+      if (!userSnap.exists()) {
+        const displayName = firebaseUser.displayName || "";
+        const nameParts = displayName.trim().split(/\s+/);
+
+        const firstName = nameParts[0] || "";
+        const lastName = nameParts.slice(1).join(" ") || "";
+
+        const userData = {
+          firstName,
+          lastName,
+          email: firebaseUser.email,
+          phone: "",
+          nationality: "",
+          avatar: firebaseUser.photoURL || "",
+          memberSince: new Date().toLocaleDateString("en-US", {
+            month: "long",
+            year: "numeric",
+          }),
+          createdAt: new Date(),
+          provider: "google",
+        };
+
+        // SAVE TO FIRESTORE
+        await setDoc(userRef, userData);
+
+        console.log("Google user saved to Firestore!");
+      } else {
+        console.log("Google user already exists in Firestore.");
+      }
 
       return true;
     } catch (error: any) {
       console.error("Google Login Error:", error);
-
       throw error;
     }
   };
