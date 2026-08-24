@@ -30,176 +30,6 @@ const SUGGESTIONS_INITIAL = [
   "What payment methods do you accept?",
 ];
 
-function getAIResponse(input: string): Omit<Message, "role" | "timestamp"> {
-  const q = input.toLowerCase();
-
-  if (
-    q.includes("honeymoon") ||
-    q.includes("romantic") ||
-    q.includes("anniversary")
-  ) {
-    return {
-      text: "💑 For a romantic getaway, I recommend our **Sunset Overwater Cottage** — it's our most exclusive room with a glass floor over the lagoon and a private plunge pool. Perfect for celebrating love! Alternatively, the **Coral Beachfront Villa** offers direct beach access and a stunning private terrace for sunset views.",
-      roomCards: rooms.filter((r) => r.id === "r6" || r.id === "r1"),
-      suggestions: [
-        "Book the Overwater Cottage",
-        "What's the price?",
-        "Add special anniversary setup",
-      ],
-    };
-  }
-
-  if (q.includes("family") || q.includes("kids") || q.includes("children")) {
-    return {
-      text: "👨‍👩‍👧‍👦 For families, I recommend the **Pearl Family Bungalow** — it has two connected bedrooms, a living area, and its own garden path to the beach. It comfortably fits up to 5 guests and is great for kids. Our Snorkeling Safari is also perfect for children 5 and above!",
-      roomCards: rooms.filter((r) => r.id === "r5"),
-      serviceCards: services.filter((s) => s.id === "s2"),
-      suggestions: [
-        "Tell me more about snorkeling",
-        "Is the bungalow available?",
-        "What family activities are available?",
-      ],
-    };
-  }
-
-  if (q.includes("div") || q.includes("scuba")) {
-    return {
-      text: "🤿 Coral Bay is a world-class diving destination! We offer:\n\n• **Open Water Diving** — PADI-certified, suitable for beginners and above. 3-4 hours, ₱2,800.\n• **Night Diving** — Unique nocturnal reef experience. Advanced certification required. ₱3,500.\n\nOur dive center opens at 6 AM daily. All equipment and safety gear included.",
-      serviceCards: services.filter((s) => s.category === "diving"),
-      suggestions: [
-        "Book open water diving",
-        "Do I need a certification?",
-        "What dive sites are available?",
-      ],
-    };
-  }
-
-  if (q.includes("snorkel")) {
-    return {
-      text: "🐠 Our **Snorkeling Safari** is one of the most popular activities at Coral Bay! It's suitable for all ages (children 5+) and no experience needed. You'll explore vibrant shallow reefs with sea turtles, colorful fish, and coral gardens. Available 4 times daily, ₱1,200 per person.",
-      serviceCards: services.filter((s) => s.id === "s2"),
-      suggestions: [
-        "Book snorkeling",
-        "Can kids join?",
-        "What equipment is provided?",
-      ],
-    };
-  }
-
-  if (q.includes("island hopping") || q.includes("island hop")) {
-    return {
-      text: "🏝️ The **Island Hopping Adventure** is our signature full-day experience! You'll visit 3 stunning uninhabited islands with pristine white sand bars and hidden lagoons. Lunch and snorkeling equipment are included in the ₱2,200 price. Groups depart at 7:30 AM daily. Maximum 15 participants.",
-      serviceCards: services.filter((s) => s.id === "s3"),
-      suggestions: [
-        "Book island hopping",
-        "What's included?",
-        "How long is the trip?",
-      ],
-    };
-  }
-
-  if (q.includes("budget") || q.includes("cheap") || q.includes("affordable")) {
-    return {
-      text: "💰 Our most budget-friendly option is the **Mango Garden Cottage** at ₱3,200/night, set in lush tropical gardens. It's cozy, comfortable, and well-connected to all resort amenities. For activities, the **Snorkeling Safari** at ₱1,200 is excellent value.",
-      roomCards: rooms.filter((r) => r.id === "r3"),
-      suggestions: [
-        "Tell me about the garden cottage",
-        "What amenities are included?",
-        "See all room prices",
-      ],
-    };
-  }
-
-  if (
-    q.includes("payment") ||
-    q.includes("pay") ||
-    q.includes("credit card") ||
-    q.includes("gcash")
-  ) {
-    return {
-      text: "💳 We accept multiple payment methods:\n\n• **Credit/Debit Cards** — Visa, Mastercard, JCB\n• **GCash** — Mobile payment\n• **Bank Transfer** — BDO Unibank (please email proof of payment)\n\nA 5% service fee applies. Payment is processed securely via 256-bit SSL encryption.",
-      suggestions: [
-        "How do I pay?",
-        "Is there a deposit required?",
-        "What's the cancellation policy?",
-      ],
-    };
-  }
-
-  if (q.includes("cancel") || q.includes("refund")) {
-    return {
-      text: "📋 **Cancellation Policy:**\n\n• Cancellations **48+ hours** before check-in: Full refund\n• Cancellations **within 48 hours**: One night's room charge as penalty\n• **No-shows**: 100% of booking total charged\n\nTo cancel or modify a booking, go to Booking History in your account.",
-      suggestions: [
-        "How do I cancel my booking?",
-        "Can I modify my dates?",
-        "Talk to support",
-      ],
-    };
-  }
-
-  if (
-    q.includes("check-in") ||
-    q.includes("check in") ||
-    q.includes("checkin") ||
-    q.includes("arrival")
-  ) {
-    return {
-      text: "🕐 **Check-in & Check-out:**\n\n• **Check-in:** 2:00 PM\n• **Check-out:** 12:00 PM (noon)\n\nEarly check-in (from 10 AM) and late check-out (until 3 PM) may be arranged subject to availability — please request when booking or contact us 24 hours before arrival.",
-      suggestions: [
-        "Can I request early check-in?",
-        "Is airport transfer available?",
-        "What should I bring?",
-      ],
-    };
-  }
-
-  if (
-    q.includes("all room") ||
-    q.includes("available") ||
-    q.includes("room") ||
-    q.includes("accommodation")
-  ) {
-    const availableRooms = rooms.filter((r) => r.available);
-    return {
-      text: `🏨 We have ${availableRooms.length} rooms currently available at Coral Bay. They range from our cozy Garden Cottage (₱3,200/night) to the exclusive Overwater Cottage (₱11,500/night). Here\'s what\'s open for booking:`,
-      roomCards: availableRooms,
-      suggestions: [
-        "Filter by budget",
-        "Rooms for 4+ guests",
-        "Which has the best ocean view?",
-      ],
-    };
-  }
-
-  if (
-    q.includes("spa") ||
-    q.includes("wellness") ||
-    q.includes("massage") ||
-    q.includes("relax")
-  ) {
-    return {
-      text: "🌿 Our **Sunset Spa & Wellness** session is a deeply relaxing 90-minute experience combining a traditional Filipino hilot massage with an herbal steam treatment — perfectly timed with the golden hour sunset. Available at 4 PM and 5 PM daily. ₱2,500 per person.",
-      serviceCards: services.filter((s) => s.id === "s6"),
-      suggestions: [
-        "Book a spa session",
-        "Tell me about Filipino hilot",
-        "What other activities are available?",
-      ],
-    };
-  }
-
-  // Default response
-  return {
-    text: `I'd be happy to help with that! As your Coral Bay AI concierge, I can assist you with:\n\n🏨 **Room recommendations** — beachfront, ocean view, family, diving\n🤿 **Activities** — diving, snorkeling, island hopping, spa\n💳 **Payments & policies** — cancellation, payment methods\n📅 **Booking guidance** — availability, check-in info\n\nWhat would you like to know?`,
-    suggestions: [
-      "Show all rooms",
-      "Tell me about diving",
-      "Island hopping tour",
-      "Best romantic rooms",
-    ],
-  };
-}
-
 export default function AIAssistant() {
   const { user } = useApp();
   const [messages, setMessages] = useState<Message[]>([
@@ -221,34 +51,75 @@ export default function AIAssistant() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const sendMessage = (text: string) => {
-    if (!text.trim()) return;
+  const sendMessage = async (text: string) => {
+    if (!text.trim() || typing) return;
+
     const now = new Date().toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
     });
-    setMessages((prev) => [...prev, { role: "user", text, timestamp: now }]);
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        text,
+        timestamp: now,
+      },
+    ]);
+
     setInput("");
     setTyping(true);
 
-    setTimeout(
-      () => {
-        const response = getAIResponse(text);
-        setTyping(false);
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "ai",
-            ...response,
-            timestamp: new Date().toLocaleTimeString("en-US", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
+    try {
+      const response = await fetch(
+        "http://127.0.0.1:5001/admin-80f41/us-central1/resortAI",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        ]);
-      },
-      1000 + Math.random() * 800,
-    );
+          body: JSON.stringify({
+            message: text,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "AI request failed");
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          text:
+            data.response || data.message || "Sorry, I couldn't answer that.",
+          timestamp: new Date().toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        },
+      ]);
+    } catch (error) {
+      console.error("AI error:", error);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          text: "Sorry, I'm having trouble connecting to my AI service right now. Please try again.",
+          timestamp: new Date().toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        },
+      ]);
+    } finally {
+      setTyping(false);
+    }
   };
 
   const reset = () => {
