@@ -39,19 +39,11 @@ export default function Payment() {
   const [searchParams] = useSearchParams();
   const bookingId = searchParams.get("bookingId");
 
-  // =====================================================
-  // AUTH REDIRECT
-  // =====================================================
-
   useEffect(() => {
     if (!user) {
       navigate("/auth");
     }
   }, [user, navigate]);
-
-  // =====================================================
-  // PAYMENT STATE
-  // =====================================================
 
   const [method, setMethod] = useState<"card" | "gcash" | "bank">("card");
 
@@ -63,18 +55,10 @@ export default function Payment() {
   });
 
   const [gcashNum, setGcashNum] = useState("");
-
   const [processing, setProcessing] = useState(false);
-
   const [success, setSuccess] = useState(false);
-
   const [error, setError] = useState("");
-
   const [transactionId, setTransactionId] = useState("");
-
-  // =====================================================
-  // FIND BOOKING TO PAY
-  // =====================================================
 
   const target =
     pendingPayment ??
@@ -87,10 +71,6 @@ export default function Payment() {
         ) ?? null)
       : null);
 
-  // =====================================================
-  // CARD FORMAT
-  // =====================================================
-
   const formatCard = (val: string) =>
     val
       .replace(/\D/g, "")
@@ -98,37 +78,21 @@ export default function Payment() {
       .replace(/(.{4})/g, "$1 ")
       .trim();
 
-  // =====================================================
-  // EXPIRY FORMAT
-  // =====================================================
-
   const formatExpiry = (val: string) =>
     val
       .replace(/\D/g, "")
       .slice(0, 4)
       .replace(/(\d{2})(\d)/, "$1/$2");
 
-  // =====================================================
-  // HANDLE PAYMENT
-  // =====================================================
-
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
 
     setError("");
 
-    // ---------------------------------------------
-    // Make sure booking exists
-    // ---------------------------------------------
-
     if (!target) {
       setError("No booking was found for this payment.");
       return;
     }
-
-    // ---------------------------------------------
-    // CARD VALIDATION
-    // ---------------------------------------------
 
     if (method === "card") {
       if (!card.number || !card.name || !card.expiry || !card.cvv) {
@@ -154,10 +118,6 @@ export default function Payment() {
       }
     }
 
-    // ---------------------------------------------
-    // GCASH VALIDATION
-    // ---------------------------------------------
-
     if (method === "gcash") {
       const cleanGcash = gcashNum.replace(/\D/g, "");
 
@@ -167,41 +127,19 @@ export default function Payment() {
       }
     }
 
-    // ---------------------------------------------
-    // BANK TRANSFER
-    // ---------------------------------------------
-
     if (method === "bank") {
-      // No additional validation for demo flow.
     }
-
-    // ---------------------------------------------
-    // START PROCESSING
-    // ---------------------------------------------
 
     setProcessing(true);
 
     try {
-      // ==========================================
-      // CREATE TRANSACTION ID
-      // ==========================================
-
       const newTransactionId = `TXN-${Date.now().toString().slice(-8)}`;
-
-      // ==========================================
-      // PAYMENT METHOD LABEL
-      // ==========================================
-
       const paymentMethod =
         method === "card"
           ? "Credit/Debit Card"
           : method === "gcash"
             ? "GCash"
             : "Bank Transfer";
-
-      // ==========================================
-      // FIRESTORE BOOKING UPDATE
-      // ==========================================
 
       const bookingRef = doc(customerDb, "Bookings", target.id);
 
@@ -214,43 +152,20 @@ export default function Payment() {
 
         paidAt: serverTimestamp(),
 
-        // If the booking was pending,
-        // payment now confirms it.
         status: target.status === "pending" ? "confirmed" : target.status,
       });
 
       console.log("Payment successfully saved to Firestore:", target.id);
 
-      // ==========================================
-      // UPDATE LOCAL APP STATE
-      // ==========================================
-
       modifyBooking(target.id, {
         paymentStatus: "paid",
-
         paymentMethod: paymentMethod,
-
         transactionId: newTransactionId,
-
         status: target.status === "pending" ? "confirmed" : target.status,
       });
 
-      // ==========================================
-      // CLEAR PENDING PAYMENT
-      // ==========================================
-
       setPendingPayment(null);
-
-      // ==========================================
-      // SAVE TRANSACTION ID FOR UI
-      // ==========================================
-
       setTransactionId(newTransactionId);
-
-      // ==========================================
-      // SHOW SUCCESS
-      // ==========================================
-
       setSuccess(true);
     } catch (err) {
       console.error("Payment error:", err);
@@ -261,16 +176,9 @@ export default function Payment() {
     }
   };
 
-  // =====================================================
-  // IF USER IS NOT LOGGED IN
-  // =====================================================
-
   if (!user) {
     return null;
   }
-  // =====================================================
-  // NO VALID BOOKING
-  // =====================================================
 
   if (!target) {
     return (
@@ -301,10 +209,6 @@ export default function Payment() {
       </div>
     );
   }
-
-  // =====================================================
-  // SUCCESS SCREEN
-  // =====================================================
 
   if (success) {
     return (
@@ -388,16 +292,8 @@ export default function Payment() {
     );
   }
 
-  // =====================================================
-  // INPUT STYLE
-  // =====================================================
-
   const inputClass =
     "w-full px-4 py-2.5 rounded-xl border border-border bg-white text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground/60";
-
-  // =====================================================
-  // MAIN PAYMENT PAGE
-  // =====================================================
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -417,14 +313,8 @@ export default function Payment() {
       </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-        {/* =================================================
-            PAYMENT FORM
-        ================================================= */}
-
         <div className="lg:col-span-3">
           <form onSubmit={handlePay} className="space-y-5">
-            {/* PAYMENT METHOD */}
-
             <div className="bg-white rounded-2xl border border-border p-5">
               <h2
                 className="font-semibold text-foreground mb-4"
@@ -459,8 +349,6 @@ export default function Payment() {
               </div>
             </div>
 
-            {/* PAYMENT DETAILS */}
-
             <div className="bg-white rounded-2xl border border-border p-5">
               <h2
                 className="font-semibold text-foreground mb-4"
@@ -482,8 +370,6 @@ export default function Payment() {
                   {error}
                 </div>
               )}
-
-              {/* CARD */}
 
               {method === "card" && (
                 <div className="space-y-3">
@@ -570,8 +456,6 @@ export default function Payment() {
                 </div>
               )}
 
-              {/* GCASH */}
-
               {method === "gcash" && (
                 <div className="space-y-3">
                   <div className="flex justify-center mb-2">
@@ -600,8 +484,6 @@ export default function Payment() {
                   </p>
                 </div>
               )}
-
-              {/* BANK */}
 
               {method === "bank" && (
                 <div className="space-y-3">
@@ -644,15 +526,11 @@ export default function Payment() {
               )}
             </div>
 
-            {/* SECURITY */}
-
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Lock className="w-4 h-4 flex-shrink-0 text-primary" />
               Your payment information is encrypted and secured by 256-bit SSL
               encryption.
             </div>
-
-            {/* PAY BUTTON */}
 
             <button
               type="submit"
@@ -673,10 +551,6 @@ export default function Payment() {
             </button>
           </form>
         </div>
-
-        {/* =================================================
-            ORDER SUMMARY
-        ================================================= */}
 
         <div className="lg:col-span-2">
           <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">

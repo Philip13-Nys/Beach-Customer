@@ -15,7 +15,6 @@ import {
   collection,
   addDoc,
   query,
-  where,
   orderBy,
   onSnapshot,
   serverTimestamp,
@@ -107,7 +106,7 @@ export default function Inquiries() {
             id: replyDoc.id,
             sender:
               data.sender === "receptionist" ? "receptionist" : "customer",
-            message: String(data.text || ""),
+            message: String(data.message || ""),
             createdAt: data.createdAt || null,
           };
         });
@@ -152,7 +151,6 @@ export default function Inquiries() {
 
     const inquiriesQuery = query(
       collection(customerDb, "Inquiries"),
-      where("userId", "==", user.id),
       orderBy("createdAt", "desc"),
     );
 
@@ -290,12 +288,13 @@ export default function Inquiries() {
         senderName:
           `${user?.firstName || ""} ${user?.lastName || ""}`.trim() ||
           "Customer",
-        text: input.trim(),
+        message: input.trim(),
+        userId: user.id,
         createdAt: serverTimestamp(),
       };
 
       await addDoc(
-        collection(customerDb, "Inquiries", selectedInquiry.id, "Replies"),
+        collection(customerDb, "Inquiries", selectedInquiry.id, "replies"),
         reply,
       );
 
