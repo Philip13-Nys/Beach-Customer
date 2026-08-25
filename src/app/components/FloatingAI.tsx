@@ -15,7 +15,7 @@ const CHIPS = [
   "Island hopping",
 ];
 
-const AI_ENDPOINT = "http://127.0.0.1:5001/admin-80f41/us-central1/resortAI";
+const AI_ENDPOINT = "https://resort-ai-backend.onrender.com/resortAI";
 
 export default function FloatingAI() {
   const location = useLocation();

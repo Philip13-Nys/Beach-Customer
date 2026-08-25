@@ -18,8 +18,7 @@ const SUGGESTIONS_INITIAL = [
   "Tell me about the resort.",
 ];
 
-const AI_API_URL =
-  "https://us-central1-admin-80f41.cloudfunctions.net/resortAI";
+const AI_API_URL = "https://resort-ai-backend.onrender.com/resortAI";
 
 function getTime() {
   return new Date().toLocaleTimeString("en-US", {
