@@ -67,11 +67,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       className="min-h-screen flex flex-col"
       style={{ fontFamily: "var(--font-body)" }}
     >
-      {/* Header */}
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between min-h-16 py-2">
-            {/* Logo */}
             <Link to="/" className="flex items-center gap-2 group">
               <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
                 <Anchor className="w-5 h-5 text-white" />
@@ -208,7 +206,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     to="/auth?tab=register"
                     className="text-sm font-medium bg-accent text-white px-4 py-2 rounded-full hover:bg-accent/90 transition-colors"
                   >
-                    Book Now
+                    Sign Up Now!
                   </Link>
                 </div>
               )}

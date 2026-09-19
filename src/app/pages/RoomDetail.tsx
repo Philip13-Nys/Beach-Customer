@@ -280,7 +280,9 @@ export default function RoomDetail() {
                   </div>
 
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Service fee</span>
+                    <span className="text-muted-foreground">
+                      Reservation fee
+                    </span>
 
                     <span className="text-foreground">
                       ₱{Math.round(room.basePrice * 0.05).toLocaleString()}
