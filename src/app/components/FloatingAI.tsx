@@ -15,7 +15,8 @@ const CHIPS = [
   "Island hopping",
 ];
 
-const AI_ENDPOINT = "https://resort-ai-backend.onrender.com/resortAI";
+// Cunag AI backend on Vercel
+const AI_ENDPOINT = "https://resort-ai-backend-kappa.vercel.app/api/resortAI";
 
 export default function FloatingAI() {
   const location = useLocation();
@@ -36,20 +37,22 @@ export default function FloatingAI() {
 
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Hide floating AI on the full AI assistant page
-  if (location.pathname === "/ai-assistant") {
-    return null;
-  }
-
   // Scroll to newest message
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    endRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
   }, [msgs, typing]);
 
   // Nudge animation
   useEffect(() => {
-    const t = setTimeout(() => setNudge(true), 4000);
-    const t2 = setTimeout(() => setNudge(false), 7000);
+    const t = setTimeout(() => {
+      setNudge(true);
+    }, 4000);
+
+    const t2 = setTimeout(() => {
+      setNudge(false);
+    }, 7000);
 
     return () => {
       clearTimeout(t);
@@ -58,7 +61,7 @@ export default function FloatingAI() {
   }, []);
 
   /**
-   * Send message to Firebase Cloud Function
+   * Send message to Cunag AI backend
    */
   const send = async (text: string) => {
     const message = text.trim();
@@ -81,6 +84,7 @@ export default function FloatingAI() {
 
     try {
       console.log("Sending message to Cunag:", message);
+      console.log("Cunag endpoint:", AI_ENDPOINT);
 
       const response = await fetch(AI_ENDPOINT, {
         method: "POST",
@@ -92,17 +96,32 @@ export default function FloatingAI() {
         }),
       });
 
-      const data = await response.json();
+      // Get raw response first
+      const rawText = await response.text();
 
-      console.log("Cunag response:", data);
+      console.log("Cunag HTTP status:", response.status);
+      console.log("Cunag raw response:", rawText);
+
+      // Try to parse JSON
+      let data: any = null;
+
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error(
+          `Cunag backend returned a non-JSON response (HTTP ${response.status}).`,
+        );
+      }
 
       if (!response.ok) {
         throw new Error(
           data?.details ||
             data?.error ||
-            `AI request failed with status ${response.status}`,
+            `AI request failed with status ${response.status}.`,
         );
       }
+
+      console.log("Cunag response:", data);
 
       const aiResponse =
         data?.response ||
@@ -135,6 +154,11 @@ export default function FloatingAI() {
       setTyping(false);
     }
   };
+
+  // Hide floating AI on the full AI assistant page
+  if (location.pathname === "/ai-assistant") {
+    return null;
+  }
 
   return (
     <>
@@ -227,6 +251,7 @@ export default function FloatingAI() {
             <button
               onClick={() => setOpen(false)}
               className="w-7 h-7 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
+              aria-label="Minimize AI assistant"
             >
               <Minimize2 className="w-3.5 h-3.5 text-white" />
             </button>
@@ -321,6 +346,7 @@ export default function FloatingAI() {
               onClick={() => send(input)}
               disabled={!input.trim() || typing}
               className="w-8 h-8 bg-accent text-white rounded-xl flex items-center justify-center hover:bg-accent/90 transition-colors disabled:opacity-40 flex-shrink-0"
+              aria-label="Send message"
             >
               <Send className="w-3.5 h-3.5" />
             </button>
