@@ -140,6 +140,66 @@ export default function BookingPage() {
     loadRoom();
   }, [id]);
 
+  const checkRoomAvailability = async () => {
+    if (!room || !checkIn || !checkOut) {
+      return false;
+    }
+
+    if (checkOut <= checkIn) {
+      setAvailableRooms(0);
+      return false;
+    }
+
+    setCheckingAvailability(true);
+
+    try {
+      const bookingsQuery = query(
+        collection(customerDb, "Bookings"),
+        where("roomId", "==", room.id),
+      );
+
+      const bookingsSnap = await getDocs(bookingsQuery);
+
+      let bookedRooms = 0;
+
+      bookingsSnap.forEach((bookingDoc) => {
+        const booking = bookingDoc.data();
+
+        // Do not count cancelled bookings
+        if (booking.status === "cancelled") {
+          return;
+        }
+
+        const existingCheckIn = new Date(`${booking.checkIn}T00:00:00`);
+
+        const existingCheckOut = new Date(`${booking.checkOut}T00:00:00`);
+
+        const selectedCheckIn = new Date(`${checkIn}T00:00:00`);
+
+        const selectedCheckOut = new Date(`${checkOut}T00:00:00`);
+
+        const overlaps =
+          selectedCheckIn < existingCheckOut &&
+          selectedCheckOut > existingCheckIn;
+
+        if (overlaps) {
+          bookedRooms++;
+        }
+      });
+
+      const remainingRooms = Math.max(0, room.count - bookedRooms);
+
+      setAvailableRooms(remainingRooms);
+
+      return remainingRooms > 0;
+    } catch (error) {
+      alert("Unable to check room availability.");
+      return false;
+    } finally {
+      setCheckingAvailability(false);
+    }
+  };
+
   useEffect(() => {
     if (!room) return;
 
@@ -222,65 +282,6 @@ export default function BookingPage() {
     setSelectedAddOns((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
-  };
-  const checkRoomAvailability = async () => {
-    if (!room || !checkIn || !checkOut) {
-      return false;
-    }
-
-    if (checkOut <= checkIn) {
-      setAvailableRooms(0);
-      return false;
-    }
-
-    setCheckingAvailability(true);
-
-    try {
-      const bookingsQuery = query(
-        collection(customerDb, "Bookings"),
-        where("roomId", "==", room.id),
-      );
-
-      const bookingsSnap = await getDocs(bookingsQuery);
-
-      let bookedRooms = 0;
-
-      bookingsSnap.forEach((bookingDoc) => {
-        const booking = bookingDoc.data();
-
-        // Do not count cancelled bookings
-        if (booking.status === "cancelled") {
-          return;
-        }
-
-        const existingCheckIn = new Date(`${booking.checkIn}T00:00:00`);
-
-        const existingCheckOut = new Date(`${booking.checkOut}T00:00:00`);
-
-        const selectedCheckIn = new Date(`${checkIn}T00:00:00`);
-
-        const selectedCheckOut = new Date(`${checkOut}T00:00:00`);
-
-        const overlaps =
-          selectedCheckIn < existingCheckOut &&
-          selectedCheckOut > existingCheckIn;
-
-        if (overlaps) {
-          bookedRooms++;
-        }
-      });
-
-      const remainingRooms = Math.max(0, room.count - bookedRooms);
-
-      setAvailableRooms(remainingRooms);
-
-      return remainingRooms > 0;
-    } catch (error) {
-      alert("Unable to check room availability.");
-      return false;
-    } finally {
-      setCheckingAvailability(false);
-    }
   };
 
   const handleConfirm = async () => {
