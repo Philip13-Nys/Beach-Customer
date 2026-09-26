@@ -58,7 +58,6 @@ export interface User {
   lastName: string;
   email: string;
   phone: string;
-  nationality: string;
   avatar: string;
   memberSince: string;
 }
@@ -76,7 +75,6 @@ interface AppContextType {
     firstName: string;
     lastName: string;
     phone: string;
-    nationality: string;
   }) => Promise<boolean>;
 
   register: (data: {
@@ -84,7 +82,6 @@ interface AppContextType {
     lastName: string;
     email: string;
     phone: string;
-    nationality: string;
     password: string;
   }) => Promise<boolean>;
 
@@ -131,7 +128,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               firebaseUser.displayName?.split(" ").slice(1).join(" ") || "",
             email: firebaseUser.email || "",
             phone: "",
-            nationality: "",
             avatar: firebaseUser.photoURL || "",
             memberSince: new Date().toLocaleDateString("en-US", {
               month: "long",
@@ -149,7 +145,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
             lastName: newUser.lastName,
             email: newUser.email,
             phone: newUser.phone,
-            nationality: newUser.nationality,
             avatar: newUser.avatar,
             memberSince: newUser.memberSince,
           });
@@ -165,7 +160,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           lastName: data.lastName || "",
           email: data.email || firebaseUser.email || "",
           phone: data.phone || "",
-          nationality: data.nationality || "",
           avatar: data.avatar || "",
           memberSince: data.memberSince || "",
         });
@@ -184,7 +178,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     lastName: string;
     email: string;
     phone: string;
-    nationality: string;
     password: string;
   }): Promise<boolean> => {
     try {
@@ -195,13 +188,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
 
       const firebaseUser = result.user;
+
       await sendEmailVerification(firebaseUser);
+
       await setDoc(doc(customerDb, "Users", firebaseUser.uid), {
         firstName: data.firstName,
         lastName: data.lastName,
         email: data.email,
         phone: data.phone,
-        nationality: data.nationality,
         avatar: "",
         memberSince: new Date().toLocaleDateString("en-US", {
           month: "long",
@@ -212,6 +206,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       await signOut(auth);
+
       return true;
     } catch (error) {
       console.error("Registration error:", error);
@@ -221,7 +216,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
-      const result = await signInWithEmailAndPassword(auth, email, password);
+      const result = await signInWithEmailAndPassword(
+        auth,
+        email,
+        password,
+      );
 
       const firebaseUser = result.user;
 
@@ -277,7 +276,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           lastName,
           email: firebaseUser.email,
           phone: "",
-          nationality: "",
           avatar: firebaseUser.photoURL || "",
           memberSince: new Date().toLocaleDateString("en-US", {
             month: "long",
@@ -306,7 +304,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     firstName: string;
     lastName: string;
     phone: string;
-    nationality: string;
   }): Promise<boolean> => {
     try {
       const provider = new GoogleAuthProvider();
@@ -345,7 +342,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         email: firebaseUser.email,
 
         phone: data.phone,
-        nationality: data.nationality,
 
         avatar: firebaseUser.photoURL || "",
 
@@ -385,7 +381,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateProfile = (data: Partial<User>) => {
     if (user) {
       const updated = { ...user, ...data };
+
       setUser(updated);
+
       localStorage.setItem(
         "cbr_registered_" + updated.email,
         JSON.stringify(updated),
@@ -395,6 +393,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addBooking = (booking: Booking) => {
     setBookings((prev) => [booking, ...prev]);
+
     setNotifications((prev) => [
       {
         id: "n_" + Date.now(),
@@ -415,7 +414,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)),
+        prev.map((b) =>
+          b.id === id ? { ...b, status: "cancelled" } : b,
+        ),
       );
 
       const booking = bookings.find((b) => b.id === id);
@@ -439,12 +440,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const modifyBooking = async (id: string, updates: Partial<Booking>) => {
+  const modifyBooking = async (
+    id: string,
+    updates: Partial<Booking>,
+  ) => {
     try {
       await updateDoc(doc(customerDb, "Bookings", id), updates);
 
       setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+        prev.map((b) =>
+          b.id === id ? { ...b, ...updates } : b,
+        ),
       );
     } catch (error) {
       console.error("Error modifying booking:", error);
@@ -454,12 +460,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const markNotificationRead = (id: string) => {
     setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
+      prev.map((n) =>
+        n.id === id ? { ...n, read: true } : n,
+      ),
     );
   };
 
   const markAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setNotifications((prev) =>
+      prev.map((n) => ({ ...n, read: true })),
+    );
   };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -493,6 +503,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
 export function useApp() {
   const ctx = useContext(AppContext);
-  if (!ctx) throw new Error("useApp must be inside AppProvider");
+
+  if (!ctx) {
+    throw new Error("useApp must be inside AppProvider");
+  }
+
   return ctx;
 }

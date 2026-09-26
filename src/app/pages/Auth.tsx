@@ -381,14 +381,13 @@ export default function Auth() {
                   Sign in using your verified email account.
                 </p>
               </div>
-
+              o
               {loginError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   {loginError}
                 </div>
               )}
-
               {/* Email */}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
@@ -403,7 +402,6 @@ export default function Auth() {
                   className={inputClass}
                 />
               </div>
-
               {/* Password */}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
@@ -435,7 +433,6 @@ export default function Auth() {
                   </button>
                 </div>
               </div>
-
               {/* Login */}
               <button
                 type="submit"
@@ -443,7 +440,6 @@ export default function Auth() {
               >
                 Sign In
               </button>
-
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-border" />
@@ -455,7 +451,6 @@ export default function Auth() {
                   </span>
                 </div>
               </div>
-
               {/* Google Login */}
               <button
                 type="button"
@@ -482,7 +477,6 @@ export default function Auth() {
                 </svg>
                 Continue with Google
               </button>
-
               <p className="text-center text-xs text-muted-foreground">
                 No account yet?{" "}
                 <button
