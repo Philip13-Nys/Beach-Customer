@@ -59,6 +59,8 @@ export default function BookingPage() {
   const [loadingAddOns, setLoadingAddOns] = useState(true);
   const [availableRooms, setAvailableRooms] = useState(0);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [reservationFeePercent, setReservationFeePercent] = useState(5);
+  const [arrivalTime, setArrivalTime] = useState("");
 
   useEffect(() => {
     const loadAddOns = async () => {
@@ -94,6 +96,26 @@ export default function BookingPage() {
     };
 
     loadAddOns();
+  }, []);
+
+  useEffect(() => {
+    const loadReservationFee = async () => {
+      try {
+        const feeSnap = await getDoc(doc(db, "settings", "reservationFee"));
+
+        if (feeSnap.exists()) {
+          const percent = Number(feeSnap.data().percent);
+
+          if (Number.isFinite(percent) && percent >= 0 && percent <= 100) {
+            setReservationFeePercent(percent);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading reservation fee:", error);
+      }
+    };
+
+    loadReservationFee();
   }, []);
 
   useEffect(() => {
@@ -139,6 +161,19 @@ export default function BookingPage() {
 
     loadRoom();
   }, [id]);
+
+  const formatArrivalTime = (time: string) => {
+    if (!time) return "Not selected";
+
+    const [hours, minutes] = time.split(":").map(Number);
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+
+    return date.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
 
   const checkRoomAvailability = async () => {
     if (!room || !checkIn || !checkOut) {
@@ -269,8 +304,9 @@ export default function BookingPage() {
     .filter((item): item is SelectedAddOn => item !== null);
   const addOnTotal = addOns.reduce((sum, a) => sum + a.price, 0);
   const roomTotal = room.basePrice * nights;
-  const serviceFee = Math.round((roomTotal + addOnTotal) * 0.05);
-  const total = roomTotal + addOnTotal + serviceFee;
+  const subtotal = roomTotal + addOnTotal;
+  const reservationFee = Math.round(subtotal * (reservationFeePercent / 100));
+  const total = subtotal + reservationFee;
 
   const toggleAddOn = (id: string) => {
     setSelectedAddOns((prev) =>
@@ -283,6 +319,10 @@ export default function BookingPage() {
 
     if (!currentUser) {
       alert("Please log in first.");
+      return;
+    }
+    if (!arrivalTime) {
+      alert("Please select your estimated time of arrival.");
       return;
     }
 
@@ -333,10 +373,14 @@ export default function BookingPage() {
         roomImage: room.image,
         checkIn,
         checkOut,
+        arrivalTime,
         guests,
         nights,
         roomRate: room.basePrice,
         addOns,
+        subtotal,
+        reservationFeePercent,
+        reservationFee,
         totalPrice: total,
         status: "pending",
         paymentStatus: "unpaid",
@@ -364,6 +408,7 @@ export default function BookingPage() {
         roomName: room.name,
         checkIn,
         checkOut,
+        arrivalTime,
         guests,
         customerName,
         customerEmail,
@@ -427,16 +472,28 @@ export default function BookingPage() {
               <div className="text-xs text-muted-foreground">Check-in</div>
               <div className="font-medium">{checkIn}</div>
             </div>
+
             <div>
               <div className="text-xs text-muted-foreground">Check-out</div>
               <div className="font-medium">{checkOut}</div>
             </div>
+
+            <div>
+              <div className="text-xs text-muted-foreground">
+                Estimated Arrival
+              </div>
+              <div className="font-medium">
+                {formatArrivalTime(arrivalTime)}
+              </div>
+            </div>
+
             <div>
               <div className="text-xs text-muted-foreground">Guests</div>
               <div className="font-medium">
                 {guests} guest{guests > 1 ? "s" : ""}
               </div>
             </div>
+
             <div>
               <div className="text-xs text-muted-foreground">Duration</div>
               <div className="font-medium">
@@ -478,8 +535,10 @@ export default function BookingPage() {
               </div>
             )}
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Service fee</span>
-              <span>₱{serviceFee.toLocaleString()}</span>
+              <span className="text-muted-foreground">
+                Reservation fee ({reservationFeePercent}%)
+              </span>
+              <span>₱{reservationFee.toLocaleString()}</span>
             </div>
             <div className="flex justify-between font-bold text-base pt-2 border-t border-border">
               <span>Total</span>
@@ -528,16 +587,19 @@ export default function BookingPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
         <div className="lg:col-span-3 space-y-6">
-          <div className="bg-white rounded-2xl border border-border p-5">
+          <div className="bg-white rounded-2xl border border-border p-5 sm:p-6">
             <h2
-              className="font-semibold text-foreground mb-4 flex items-center gap-2"
+              className="font-semibold text-foreground mb-5 flex items-center gap-2"
               style={{ fontFamily: "var(--font-display)" }}
             >
-              <Calendar className="w-4 h-4 text-primary" /> Stay Dates
+              <Calendar className="w-4 h-4 text-primary" />
+              Stay Details
             </h2>
-            <div className="grid grid-cols-2 gap-3 mb-4">
+
+            {/* Check-in and Check-out */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1.5">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Check-in *
                 </label>
                 <input
@@ -547,6 +609,7 @@ export default function BookingPage() {
                   onChange={(e) => {
                     const newCheckIn = e.target.value;
                     setCheckIn(newCheckIn);
+
                     if (newCheckIn >= checkOut) {
                       const nextDay = new Date(`${newCheckIn}T00:00:00`);
                       nextDay.setDate(nextDay.getDate() + 1);
@@ -556,8 +619,9 @@ export default function BookingPage() {
                   className={inputClass}
                 />
               </div>
+
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1.5">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Check-out *
                 </label>
                 <input
@@ -570,53 +634,91 @@ export default function BookingPage() {
               </div>
             </div>
 
-            {checkingAvailability ? (
-              <div className="mt-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
-                <p className="text-sm text-gray-600">
-                  Checking room availability...
-                </p>
-              </div>
-            ) : availableRooms > 0 ? (
-              <div className="mt-3 p-3 rounded-xl bg-green-50 border border-green-200">
-                <p className="text-sm font-medium text-green-700">
-                  {availableRooms} room
-                  {availableRooms !== 1 ? "s" : ""} available for these dates.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-3 p-3 rounded-xl bg-red-50 border border-red-200">
-                <p className="text-sm font-medium text-red-700">
-                  No rooms available for these dates.
-                </p>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5 text-muted-foreground" /> Number
-                of Guests
+            {/* Estimated arrival */}
+            <div className="mt-5">
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Estimated Time of Arrival *
               </label>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setGuests((g) => Math.max(1, g - 1))}
-                  className="w-9 h-9 rounded-full border border-border flex items-center justify-center hover:bg-muted transition-colors"
-                >
-                  <Minus className="w-4 h-4" />
-                </button>
-                <span className="w-10 text-center font-medium text-foreground">
-                  {guests}
+              <input
+                type="time"
+                value={arrivalTime}
+                onChange={(e) => setArrivalTime(e.target.value)}
+                required
+                className={inputClass}
+              />
+              <p className="text-xs text-muted-foreground mt-2">
+                Select the approximate time you expect to arrive at the resort.
+              </p>
+            </div>
+
+            {/* Availability */}
+            <div className="mt-5">
+              {checkingAvailability ? (
+                <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
+                  <p className="text-sm text-gray-600">
+                    Checking room availability...
+                  </p>
+                </div>
+              ) : availableRooms > 0 ? (
+                <div className="p-3 rounded-xl bg-green-50 border border-green-200">
+                  <p className="text-sm font-medium text-green-700">
+                    {availableRooms} room
+                    {availableRooms !== 1 ? "s" : ""} available for these dates.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200">
+                  <p className="text-sm font-medium text-red-700">
+                    No rooms available for these dates.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Guests */}
+            <div className="mt-5 pt-5 border-t border-border">
+              <label className="block text-sm font-medium text-foreground mb-3">
+                <span className="inline-flex items-center gap-2">
+                  <Users className="w-4 h-4 text-muted-foreground" />
+                  Number of Guests
                 </span>
-                <button
-                  onClick={() =>
-                    setGuests((g) => Math.min(room.maxGuests, g + 1))
-                  }
-                  className="w-9 h-9 rounded-full border border-border flex items-center justify-center hover:bg-muted transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-                <span className="text-xs text-muted-foreground">
-                  (max {room.maxGuests})
-                </span>
+              </label>
+
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Guests</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Maximum {room.maxGuests} guests
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    disabled={guests <= 1}
+                    onClick={() => setGuests((g) => Math.max(1, g - 1))}
+                    className="w-10 h-10 rounded-full border border-border flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    aria-label="Decrease guests"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+
+                  <span className="w-6 text-center font-semibold text-foreground">
+                    {guests}
+                  </span>
+
+                  <button
+                    type="button"
+                    disabled={guests >= room.maxGuests}
+                    onClick={() =>
+                      setGuests((g) => Math.min(room.maxGuests, g + 1))
+                    }
+                    className="w-10 h-10 rounded-full border border-border flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    aria-label="Increase guests"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -816,7 +918,7 @@ export default function BookingPage() {
         </div>
 
         <div className="lg:col-span-2">
-          <div className="sticky top-24 bg-white rounded-2xl border border-border shadow-lg overflow-hidden">
+          <div className="lg:sticky lg:top-24 bg-white rounded-2xl border border-border shadow-lg overflow-hidden">
             <div className="relative h-36">
               <img
                 src={room.image}
@@ -833,7 +935,7 @@ export default function BookingPage() {
                 </h3>
               </div>
             </div>
-            <div className="p-5">
+            <div className="p-5 sm:p-6">
               <div className="space-y-2 text-sm mb-4">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">
@@ -850,13 +952,15 @@ export default function BookingPage() {
                 ))}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">
-                    Service fee (5%)
+                    Reservation fee ({reservationFeePercent}%)
                   </span>
-                  <span>₱{serviceFee.toLocaleString()}</span>
+                  <span>₱{reservationFee.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between font-bold text-base pt-2 border-t border-border">
-                  <span>Total</span>
-                  <span className="text-accent">₱{total.toLocaleString()}</span>
+                <div className="flex justify-between items-center font-bold text-base pt-4 mt-3 border-t border-border">
+                  <span className="text-foreground">Total</span>
+                  <span className="text-accent text-xl">
+                    ₱{total.toLocaleString()}
+                  </span>
                 </div>
               </div>
 
@@ -868,6 +972,11 @@ export default function BookingPage() {
               <button
                 disabled={checkingAvailability || availableRooms <= 0}
                 onClick={async () => {
+                  if (!arrivalTime) {
+                    alert("Please select your estimated time of arrival.");
+                    return;
+                  }
+
                   const available = await checkRoomAvailability();
 
                   if (!available) {

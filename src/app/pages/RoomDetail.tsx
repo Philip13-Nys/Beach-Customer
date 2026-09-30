@@ -31,7 +31,7 @@ export default function RoomDetail() {
 
   const [room, setRoom] = useState<RoomType | null>(null);
   const [loading, setLoading] = useState(true);
-  const [imgIdx, setImgIdx] = useState(0);
+  const [reservationFeePercent, setReservationFeePercent] = useState(5);
 
   useEffect(() => {
     const loadRoom = async () => {
@@ -73,6 +73,27 @@ export default function RoomDetail() {
 
     loadRoom();
   }, [id]);
+
+  useEffect(() => {
+    const loadReservationFee = async () => {
+      try {
+        const feeRef = doc(db, "settings", "reservationFee");
+        const feeSnap = await getDoc(feeRef);
+
+        if (feeSnap.exists()) {
+          const percent = Number(feeSnap.data().percent);
+
+          if (Number.isFinite(percent) && percent >= 0 && percent <= 100) {
+            setReservationFeePercent(percent);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading reservation fee:", error);
+      }
+    };
+
+    loadReservationFee();
+  }, []);
 
   if (loading) {
     return (
@@ -281,11 +302,14 @@ export default function RoomDetail() {
 
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
-                      Reservation fee
+                      Reservation fee ({reservationFeePercent}%)
                     </span>
 
                     <span className="text-foreground">
-                      ₱{Math.round(room.basePrice * 0.05).toLocaleString()}
+                      ₱
+                      {Math.round(
+                        room.basePrice * (reservationFeePercent / 100),
+                      ).toLocaleString()}
                     </span>
                   </div>
 
@@ -293,7 +317,13 @@ export default function RoomDetail() {
                     <span>Estimated total</span>
 
                     <span className="text-accent">
-                      ₱{Math.round(room.basePrice * 1.05).toLocaleString()}
+                      ₱
+                      {(
+                        room.basePrice +
+                        Math.round(
+                          room.basePrice * (reservationFeePercent / 100),
+                        )
+                      ).toLocaleString()}
                     </span>
                   </div>
                 </div>

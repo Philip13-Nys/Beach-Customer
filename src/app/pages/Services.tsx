@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { useApp } from "../context/AppContext";
 import { db } from "../components/firebase";
 import { collection, getDocs } from "firebase/firestore";
@@ -27,32 +27,21 @@ type Service = {
   schedule: string[];
 };
 
-type Package = {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  discount: number;
-  services: string[];
-  image: string;
-};
+const CATEGORIES = ["All", "Diving", "Water Activities", "Tour"] as const;
 
-const CATEGORIES = [
-  "All",
-  "Diving",
-  "Snorkeling",
-  "Water Sports",
-  "Island",
-  "Wellness",
-];
+type Category = (typeof CATEGORIES)[number];
 
-const catMap: Record<string, Service["category"][]> = {
-  All: ["diving", "snorkeling", "water-sports", "island", "wellness"],
-  Diving: ["diving"],
-  Snorkeling: ["snorkeling"],
-  "Water Sports": ["water-sports"],
-  Island: ["island"],
-  Wellness: ["wellness"],
+const normalizeCategory = (category: string) =>
+  category
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
+
+const catMap: Record<Category, string[]> = {
+  All: ["diving", "water-activities", "water-sports", "tours", "island"],
+  Diving: ["diving", "snorkeling"],
+  "Water Activities": ["water-activities", "water-sports"],
+  Tour: ["tours", "island"],
 };
 
 const difficultyColor: Record<string, string> = {
@@ -64,18 +53,18 @@ const difficultyColor: Record<string, string> = {
 };
 
 export default function Services() {
-  const [cat, setCat] = useState("All");
+  const [cat, setCat] = useState<Category>("All");
   const [selected, setSelected] = useState<Service | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [loadingServices, setLoadingServices] = useState(true);
+
   const [bookingDate, setBookingDate] = useState("");
   const [bookingTime, setBookingTime] = useState("");
   const [participants, setParticipants] = useState(1);
   const [booked, setBooked] = useState(false);
+
   const { user } = useApp();
   const navigate = useNavigate();
-  const [packages, setPackages] = useState<Package[]>([]);
-  const [loadingPackages, setLoadingPackages] = useState(true);
 
   useEffect(() => {
     const loadServices = async () => {
@@ -83,19 +72,25 @@ export default function Services() {
         setLoadingServices(true);
 
         const snapshot = await getDocs(collection(db, "services"));
+        const loadedServices: Service[] = snapshot.docs.map((item) => {
+          const data = item.data();
 
-        const loadedServices: Service[] = snapshot.docs.map((doc) => {
-          const data = doc.data();
+          const status =
+            typeof data.status === "string" ? data.status.toLowerCase() : "";
+
+          const available = status
+            ? status === "active"
+            : data.available !== false;
 
           return {
-            id: doc.id,
+            id: item.id,
             name: data.name || "",
             category: data.category || "",
             description: data.description || "",
             duration: data.duration || "",
             price: Number(data.price || 0),
             maxParticipants: Number(data.maxParticipants || 1),
-            available: data.available !== false,
+            available,
             image: data.image || "",
             difficulty: data.difficulty || "",
             schedule: Array.isArray(data.schedule) ? data.schedule : [],
@@ -103,7 +98,6 @@ export default function Services() {
         });
 
         console.log("Services loaded:", loadedServices);
-
         setServices(loadedServices);
       } catch (error) {
         console.error("Error loading services:", error);
@@ -115,57 +109,37 @@ export default function Services() {
     loadServices();
   }, []);
 
-  useEffect(() => {
-    const loadPackages = async () => {
-      try {
-        setLoadingPackages(true);
+  const filtered = services.filter((service) => {
+    const category = normalizeCategory(service.category || "");
+    return catMap[cat].includes(category);
+  });
 
-        const snapshot = await getDocs(collection(db, "packages"));
-
-        const loadedPackages: Package[] = snapshot.docs.map((doc) => {
-          const data = doc.data();
-
-          return {
-            id: doc.id,
-            name: data.name || "",
-            description: data.description || "",
-            price: Number(data.price || 0),
-            discount: Number(data.discount || 0),
-            services: Array.isArray(data.services) ? data.services : [],
-            image: data.image || "",
-          };
-        });
-
-        console.log("Packages loaded:", loadedPackages);
-
-        setPackages(loadedPackages);
-      } catch (error) {
-        console.error("Error loading packages:", error);
-      } finally {
-        setLoadingPackages(false);
-      }
-    };
-
-    loadPackages();
-  }, []);
-
-  const filtered = services.filter((s) =>
-    catMap[cat].includes(s.category.toLowerCase() as Service["category"]),
-  );
+  const closeBooking = () => {
+    setSelected(null);
+    setBooked(false);
+    setBookingDate("");
+    setBookingTime("");
+    setParticipants(1);
+  };
 
   const handleBook = () => {
     if (!user) {
       navigate("/auth");
       return;
     }
-    if (!bookingDate || !bookingTime) return;
+
+    if (!selected || !bookingDate || !bookingTime) {
+      return;
+    }
+
+    if (participants < 1 || participants > selected.maxParticipants) {
+      return;
+    }
+
     setBooked(true);
+
     setTimeout(() => {
-      setSelected(null);
-      setBooked(false);
-      setBookingDate("");
-      setBookingTime("");
-      setParticipants(1);
+      closeBooking();
     }, 2500);
   };
 
@@ -178,11 +152,14 @@ export default function Services() {
           alt="Activities"
           className="w-full h-full object-cover"
         />
+
         <div className="absolute inset-0 bg-gradient-to-r from-primary/80 via-primary/40 to-transparent" />
+
         <div className="absolute inset-0 flex flex-col justify-center px-8">
           <p className="text-accent text-sm font-medium uppercase tracking-wider mb-2">
             Island Experiences
           </p>
+
           <h1
             className="text-white"
             style={{
@@ -191,8 +168,9 @@ export default function Services() {
               fontWeight: 700,
             }}
           >
-            Activities & Services
+            Activities &amp; Services
           </h1>
+
           <p className="text-white/80 text-sm mt-2 max-w-md">
             Dive, snorkel, explore, relax — curate your perfect island itinerary
             from our expert-led activities.
@@ -202,121 +180,176 @@ export default function Services() {
 
       {/* Category tabs */}
       <div className="flex gap-2 overflow-x-auto pb-2 mb-8">
-        {CATEGORIES.map((c) => (
+        {CATEGORIES.map((category) => (
           <button
-            key={c}
-            onClick={() => setCat(c)}
+            key={category}
+            type="button"
+            onClick={() => setCat(category)}
             className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-              cat === c
+              cat === category
                 ? "bg-primary text-white"
                 : "bg-white border border-border text-foreground hover:bg-muted"
             }`}
           >
-            {c}
+            {category}
           </button>
         ))}
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filtered.map((svc) => (
-          <div
-            key={svc.id}
-            className="bg-white rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-lg transition-all duration-300 group"
-          >
-            <div className="relative h-48 overflow-hidden">
-              <img
-                src={svc.image}
-                alt={svc.name}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-              <div className="absolute top-3 left-3 flex gap-2">
-                <span className="px-2.5 py-1 bg-white/95 rounded-full text-[10px] font-medium text-primary capitalize">
-                  {svc.category.replace("-", " ")}
-                </span>
-                {svc.difficulty && (
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-medium ${difficultyColor[svc.difficulty] || "bg-gray-100 text-gray-600"}`}
-                  >
-                    {svc.difficulty}
+      {/* Services grid */}
+      {loadingServices ? (
+        <div className="py-16 text-center text-muted-foreground">
+          Loading services...
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-16 text-center">
+          <h3 className="text-lg font-semibold text-foreground mb-2">
+            No services found
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            There are currently no services in this category.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filtered.map((svc) => (
+            <div
+              key={svc.id}
+              className="bg-white rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-lg transition-all duration-300 group"
+            >
+              <div className="relative h-48 overflow-hidden">
+                {svc.image ? (
+                  <img
+                    src={svc.image}
+                    alt={svc.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400 text-sm">
+                    No Image Available
+                  </div>
+                )}
+
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+
+                <div className="absolute top-3 left-3 flex gap-2 flex-wrap">
+                  <span className="px-2.5 py-1 bg-white/95 rounded-full text-[10px] font-medium text-primary capitalize">
+                    {svc.category.replace(/-/g, " ")}
                   </span>
+
+                  {svc.difficulty && (
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-medium ${
+                        difficultyColor[svc.difficulty] ||
+                        "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {svc.difficulty}
+                    </span>
+                  )}
+                </div>
+
+                {!svc.available && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                    <span className="text-white font-medium text-sm bg-black/60 px-3 py-1 rounded-full">
+                      Unavailable
+                    </span>
+                  </div>
                 )}
               </div>
-              {!svc.available && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <span className="text-white font-medium text-sm bg-black/60 px-3 py-1 rounded-full">
-                    Unavailable
-                  </span>
-                </div>
-              )}
-            </div>
-            <div className="p-5">
-              <h3
-                className="font-semibold text-foreground mb-2"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: "1.1rem",
-                }}
-              >
-                {svc.name}
-              </h3>
-              <p className="text-muted-foreground text-xs leading-relaxed mb-3 line-clamp-2">
-                {svc.description}
-              </p>
-              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-4">
-                <span className="flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" /> {svc.duration}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Users className="w-3.5 h-3.5" /> Max {svc.maxParticipants}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />{" "}
-                  4.8
-                </span>
-              </div>
-              <div className="flex items-center justify-between pt-3 border-t border-border">
-                <div>
-                  <span className="text-accent font-bold text-xl">
-                    ₱{svc.price.toLocaleString()}
-                  </span>
-                  <span className="text-muted-foreground text-xs">/person</span>
-                </div>
-                <button
-                  onClick={() => svc.available && setSelected(svc)}
-                  disabled={!svc.available}
-                  className={`flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl transition-colors ${
-                    svc.available
-                      ? "bg-accent text-white hover:bg-accent/90"
-                      : "bg-muted text-muted-foreground cursor-not-allowed"
-                  }`}
+
+              <div className="p-5">
+                <h3
+                  className="font-semibold text-foreground mb-2"
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: "1.1rem",
+                  }}
                 >
-                  Book <ChevronRight className="w-4 h-4" />
-                </button>
+                  {svc.name}
+                </h3>
+
+                <p className="text-muted-foreground text-xs leading-relaxed mb-3 line-clamp-2">
+                  {svc.description}
+                </p>
+
+                <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-4">
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    {svc.duration || "Duration not set"}
+                  </span>
+
+                  <span className="flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5" />
+                    Max {svc.maxParticipants}
+                  </span>
+
+                  <span className="flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
+                    4.8
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-border">
+                  <div>
+                    <span className="text-accent font-bold text-xl">
+                      ₱{svc.price.toLocaleString("en-PH")}
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      /person
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (svc.available) {
+                        setSelected(svc);
+                      }
+                    }}
+                    disabled={!svc.available}
+                    className={`flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl transition-colors ${
+                      svc.available
+                        ? "bg-accent text-white hover:bg-accent/90"
+                        : "bg-muted text-muted-foreground cursor-not-allowed"
+                    }`}
+                  >
+                    Book
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Booking modal */}
       {selected && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
             <div className="relative h-32">
-              <img
-                src={selected.image}
-                alt={selected.name}
-                className="w-full h-full object-cover"
-              />
+              {selected.image ? (
+                <img
+                  src={selected.image}
+                  alt={selected.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gray-300" />
+              )}
+
               <div className="absolute inset-0 bg-gradient-to-t from-primary/70 to-transparent" />
+
               <button
-                onClick={() => setSelected(null)}
+                type="button"
+                onClick={closeBooking}
                 className="absolute top-3 right-3 w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+                aria-label="Close booking modal"
               >
                 <X className="w-4 h-4 text-white" />
               </button>
+
               <div className="absolute bottom-3 left-4">
                 <h2
                   className="text-white font-semibold"
@@ -324,8 +357,9 @@ export default function Services() {
                 >
                   {selected.name}
                 </h2>
+
                 <p className="text-white/70 text-xs">
-                  ₱{selected.price.toLocaleString()} per person
+                  ₱{selected.price.toLocaleString("en-PH")} per person
                 </p>
               </div>
             </div>
@@ -333,12 +367,14 @@ export default function Services() {
             {booked ? (
               <div className="p-8 text-center">
                 <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-3" />
+
                 <h3
                   className="font-semibold text-foreground mb-1"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   Activity Booked!
                 </h3>
+
                 <p className="text-sm text-muted-foreground">
                   We'll send details to your email shortly.
                 </p>
@@ -347,10 +383,11 @@ export default function Services() {
               <div className="p-5">
                 <div className="space-y-3 mb-5">
                   <div>
-                    <label className="blocks text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-muted-foreground" />{" "}
+                    <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
                       Preferred Date
                     </label>
+
                     <input
                       type="date"
                       value={bookingDate}
@@ -359,33 +396,52 @@ export default function Services() {
                       className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
+
                   <div>
                     <label className="block text-xs font-medium text-foreground mb-1.5">
                       Time Slot
                     </label>
+
                     <select
                       value={bookingTime}
                       onChange={(e) => setBookingTime(e.target.value)}
                       className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     >
                       <option value="">Select a time</option>
-                      {selected.schedule.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
+
+                      {selected.schedule.map((time) => (
+                        <option key={time} value={time}>
+                          {time}
                         </option>
                       ))}
                     </select>
+
+                    {selected.schedule.length === 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        No time slots have been configured yet.
+                      </p>
+                    )}
                   </div>
+
                   <div>
                     <label className="block text-xs font-medium text-foreground mb-1.5">
                       Participants (max {selected.maxParticipants})
                     </label>
+
                     <input
                       type="number"
                       min={1}
                       max={selected.maxParticipants}
                       value={participants}
-                      onChange={(e) => setParticipants(Number(e.target.value))}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        setParticipants(
+                          Math.min(
+                            selected.maxParticipants,
+                            Math.max(1, value || 1),
+                          ),
+                        );
+                      }}
                       className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
@@ -394,20 +450,28 @@ export default function Services() {
                 <div className="flex justify-between text-sm font-semibold text-foreground mb-4 p-3 bg-secondary rounded-xl">
                   <span>Total</span>
                   <span className="text-accent">
-                    ₱{(selected.price * participants).toLocaleString()}
+                    ₱{(selected.price * participants).toLocaleString("en-PH")}
                   </span>
                 </div>
 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setSelected(null)}
+                    type="button"
+                    onClick={closeBooking}
                     className="flex-1 border border-border text-foreground py-2.5 rounded-xl text-sm hover:bg-muted transition-colors"
                   >
                     Cancel
                   </button>
+
                   <button
+                    type="button"
                     onClick={handleBook}
-                    disabled={!bookingDate || !bookingTime}
+                    disabled={
+                      !bookingDate ||
+                      !bookingTime ||
+                      participants < 1 ||
+                      participants > selected.maxParticipants
+                    }
                     className="flex-1 bg-accent text-white py-2.5 rounded-xl text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-50"
                   >
                     Confirm Booking

@@ -41,11 +41,21 @@ export interface Booking {
   totalPrice: number;
 
   status: "confirmed" | "pending" | "cancelled" | "completed";
-  paymentStatus: "paid" | "partial" | "unpaid";
+
+  paymentStatus: "paid" | "partial" | "unpaid" | "pending_verification";
 
   paymentMethod?: string;
   transactionId?: string;
   paidAt?: any;
+
+  downPaymentAmount?: number;
+  remainingBalance?: number;
+  paymentReference?: string;
+  paymentRecordId?: string;
+
+  userId?: string;
+  customerName?: string;
+  email?: string;
 
   bookingRef: string;
   createdAt: string;
@@ -222,10 +232,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string) => {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
-
       const firebaseUser = result.user;
-
-      // Get the latest verification status
       await firebaseUser.reload();
 
       if (!firebaseUser.emailVerified) {
@@ -248,7 +255,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         prompt: "select_account",
       });
 
-      // Sign in with Google
       const result = await signInWithPopup(auth, provider);
       const firebaseUser = result.user;
 
@@ -259,10 +265,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         throw new Error("Google account does not have an email.");
       }
 
-      // Firestore document
       const userRef = doc(customerDb, "Users", firebaseUser.uid);
-
-      // Check if profile already exists
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
@@ -287,7 +290,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           provider: "google",
         };
 
-        // SAVE TO FIRESTORE
         await setDoc(userRef, userData);
 
         console.log("Google user saved to Firestore!");
@@ -315,7 +317,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         prompt: "select_account",
       });
 
-      // Google authentication
       const result = await signInWithPopup(auth, provider);
 
       const firebaseUser = result.user;
@@ -324,10 +325,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         throw new Error("Google account does not have an email address.");
       }
 
-      // Firebase UID
       const userRef = doc(customerDb, "Users", firebaseUser.uid);
 
-      // Check if profile already exists
       const existingUser = await getDoc(userRef);
 
       if (existingUser.exists()) {
@@ -336,26 +335,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return true;
       }
 
-      // Create Firestore profile
       await setDoc(userRef, {
         firstName: data.firstName,
         lastName: data.lastName,
-
-        // Email comes ONLY from Google
         email: firebaseUser.email,
-
         phone: data.phone,
         nationality: data.nationality,
-
         avatar: firebaseUser.photoURL || "",
-
         memberSince: new Date().toLocaleDateString("en-US", {
           month: "long",
           year: "numeric",
         }),
-
         createdAt: new Date(),
-
         provider: "google",
       });
 
@@ -417,9 +408,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setBookings((prev) =>
         prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)),
       );
-
       const booking = bookings.find((b) => b.id === id);
-
       if (booking) {
         setNotifications((prev) => [
           {
@@ -442,7 +431,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const modifyBooking = async (id: string, updates: Partial<Booking>) => {
     try {
       await updateDoc(doc(customerDb, "Bookings", id), updates);
-
       setBookings((prev) =>
         prev.map((b) => (b.id === id ? { ...b, ...updates } : b)),
       );
