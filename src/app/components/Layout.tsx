@@ -29,9 +29,7 @@ const navLinks = [
   { label: "Activities", href: "/services", icon: Activity },
 ];
 
-const authNavLinks = [
-  { label: "My Bookings", href: "/booking-history", icon: Calendar },
-];
+const authNavLinks = [{ label: "My Bookings", href: "/booking-history" }];
 
 const guestLinks = [
   { label: "My Bookings", href: "/bookings", icon: Calendar },
@@ -114,7 +112,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                         : "text-foreground hover:text-primary"
                     }`}
                   >
-                    <link.icon className="w-3.5 h-3.5" />
                     {link.label}
                   </Link>
                 ))}

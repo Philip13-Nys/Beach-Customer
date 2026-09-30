@@ -165,17 +165,13 @@ export default function BookingPage() {
       bookingsSnap.forEach((bookingDoc) => {
         const booking = bookingDoc.data();
 
-        // Do not count cancelled bookings
         if (booking.status === "cancelled") {
           return;
         }
 
         const existingCheckIn = new Date(`${booking.checkIn}T00:00:00`);
-
         const existingCheckOut = new Date(`${booking.checkOut}T00:00:00`);
-
         const selectedCheckIn = new Date(`${checkIn}T00:00:00`);
-
         const selectedCheckOut = new Date(`${checkOut}T00:00:00`);
 
         const overlaps =
@@ -243,7 +239,6 @@ export default function BookingPage() {
   );
   const addOns: SelectedAddOn[] = selectedAddOns
     .map((selectedId): SelectedAddOn | null => {
-      // Package
       if (selectedId.startsWith("package-")) {
         const packageId = selectedId.replace("package-", "");
         const pkg = packages.find((p) => p.id === packageId);
@@ -259,7 +254,6 @@ export default function BookingPage() {
         };
       }
 
-      // Individual service/activity
       const svc = addOnServices.find((s) => s.id === selectedId);
 
       if (!svc) return null;
@@ -292,7 +286,6 @@ export default function BookingPage() {
       return;
     }
 
-    // Check availability one more time before creating booking
     const stillAvailable = await checkRoomAvailability();
 
     if (!stillAvailable) {
@@ -301,7 +294,6 @@ export default function BookingPage() {
       return;
     }
 
-    // Validate dates
     const checkInDate = new Date(`${checkIn}T00:00:00`);
     const checkOutDate = new Date(`${checkOut}T00:00:00`);
 
@@ -310,7 +302,6 @@ export default function BookingPage() {
       return;
     }
 
-    // Validate guests
     if (guests < 1 || guests > room.maxGuests) {
       alert(`This room allows a maximum of ${room.maxGuests} guests.`);
       return;
@@ -328,14 +319,10 @@ export default function BookingPage() {
       }
 
       const userData = userSnap.data();
-
       const customerName =
         `${userData.firstName || ""} ${userData.lastName || ""}`.trim();
-
       const customerEmail = userData.email || currentUser.email || "";
-
       const customerPhone = userData.phone || "";
-
       const bookingData = {
         userId: currentUser.uid,
         customerName,
@@ -364,7 +351,6 @@ export default function BookingPage() {
         createdAt: serverTimestamp(),
       };
 
-      // Save booking to CUSTOMER database
       const bookingRef = await addDoc(
         collection(customerDb, "Bookings"),
         bookingData,
@@ -542,7 +528,6 @@ export default function BookingPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
         <div className="lg:col-span-3 space-y-6">
-          {/* Dates */}
           <div className="bg-white rounded-2xl border border-border p-5">
             <h2
               className="font-semibold text-foreground mb-4 flex items-center gap-2"
@@ -636,7 +621,6 @@ export default function BookingPage() {
             </div>
           </div>
 
-          {/* Activities & Packages */}
           <div className="bg-white rounded-2xl border border-border p-5">
             <h2
               className="font-semibold text-foreground mb-1"
@@ -658,7 +642,6 @@ export default function BookingPage() {
               </div>
             ) : (
               <div className="space-y-6">
-                {/* INDIVIDUAL ACTIVITIES */}
                 {addOnServices.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold text-foreground mb-3">
@@ -709,7 +692,6 @@ export default function BookingPage() {
                   </div>
                 )}
 
-                {/* PACKAGES */}
                 {packages.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold text-foreground mb-3">
@@ -772,7 +754,6 @@ export default function BookingPage() {
                                   </div>
                                 </div>
 
-                                {/* INCLUDED SERVICES */}
                                 {Array.isArray(pkg.services) &&
                                   pkg.services.length > 0 && (
                                     <div className="mt-3">
@@ -803,7 +784,6 @@ export default function BookingPage() {
                   </div>
                 )}
 
-                {/* NOTHING AVAILABLE */}
                 {addOnServices.length === 0 && packages.length === 0 && (
                   <div className="py-5 text-center">
                     <p className="text-sm text-muted-foreground">
@@ -815,7 +795,6 @@ export default function BookingPage() {
             )}
           </div>
 
-          {/* Special requests */}
           <div className="bg-white rounded-2xl border border-border p-5">
             <h2
               className="font-semibold text-foreground mb-1"
@@ -836,7 +815,6 @@ export default function BookingPage() {
           </div>
         </div>
 
-        {/* Summary */}
         <div className="lg:col-span-2">
           <div className="sticky top-24 bg-white rounded-2xl border border-border shadow-lg overflow-hidden">
             <div className="relative h-36">
