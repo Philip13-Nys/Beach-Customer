@@ -29,16 +29,55 @@ import {
   X,
 } from "lucide-react";
 
-interface Room {
+/* =========================================================
+   TYPES
+========================================================= */
+
+interface RoomType {
   id: string;
   name: string;
-  type: string;
+  price?: number;
+  capacity?: number;
   images?: string[];
   image?: string;
+  description?: string;
+  available?: boolean;
+}
+
+interface Room {
+  id: string;
+
+  name: string;
+
+  /*
+   * Main relationship.
+   */
+  roomTypeId?: string;
+
+  /*
+   * Optional room type name.
+   */
+  roomTypeName?: string;
+
+  /*
+   * Some older documents may use this.
+   */
+  roomType?: string;
+
+  /*
+   * Backwards compatibility.
+   */
+  type?: string;
+
+  images?: string[];
+  image?: string;
+
   price: number;
   capacity: number;
+
   rating?: number;
   reviews?: number;
+
   available?: boolean;
 }
 
@@ -64,19 +103,36 @@ interface Review {
 
 interface Booking {
   id: string;
+
   checkIn?: unknown;
   checkOut?: unknown;
+
   status?: string;
+
   roomId?: string;
+
   roomTypeId?: string;
+
+  roomTypeName?: string;
+
+  roomName?: string;
+
   guestName?: string;
+
   adults?: number;
+
   children?: number;
 }
 
+/* =========================================================
+   DATE HELPERS
+========================================================= */
+
 function formatDateInput(date: Date) {
   const year = date.getFullYear();
+
   const month = String(date.getMonth() + 1).padStart(2, "0");
+
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
@@ -147,43 +203,27 @@ function isSameDay(a: Date, b: Date) {
   return dateKey(a) === dateKey(b);
 }
 
-function getDaysBetweenInclusive(start: Date, end: Date) {
-  const days: string[] = [];
-
-  let current = startOfDay(start);
-  const finalDate = startOfDay(end);
-
-  while (current <= finalDate) {
-    days.push(dateKey(current));
-
-    current = addDays(current, 1);
-  }
-
-  return days;
-}
-
 /*
- * Hotel nights exclude checkout date.
+ * Returns hotel nights.
  *
  * Example:
  *
- * Check-in  Dec 17
- * Check-out Dec 23
+ * Oct 10 -> Oct 13
  *
  * Nights:
- * Dec 17
- * Dec 18
- * Dec 19
- * Dec 20
- * Dec 21
- * Dec 22
+ * Oct 10
+ * Oct 11
+ * Oct 12
  *
- * Total = 6 nights
+ * Oct 13 is checkout and isn't blocked.
  */
 function getNightDates(checkIn: string, checkOut: string) {
-  if (!checkIn || !checkOut) return [];
+  if (!checkIn || !checkOut) {
+    return [];
+  }
 
   const start = new Date(`${checkIn}T00:00:00`);
+
   const end = new Date(`${checkOut}T00:00:00`);
 
   if (isNaN(start.getTime()) || isNaN(end.getTime())) {
@@ -193,6 +233,7 @@ function getNightDates(checkIn: string, checkOut: string) {
   const dates: string[] = [];
 
   let current = startOfDay(start);
+
   const checkout = startOfDay(end);
 
   while (current < checkout) {
@@ -203,6 +244,102 @@ function getNightDates(checkIn: string, checkOut: string) {
 
   return dates;
 }
+
+function isBookingActive(status?: string) {
+  const normalized = String(status || "confirmed").toLowerCase();
+
+  return !["cancelled", "canceled", "rejected"].includes(normalized);
+}
+
+function getBookingNightDates(booking: Booking) {
+  const start = parseFirestoreDate(booking.checkIn);
+
+  const end = parseFirestoreDate(booking.checkOut);
+
+  if (!start || !end) {
+    return [];
+  }
+
+  return getNightDates(formatDateInput(start), formatDateInput(end));
+}
+
+/* =========================================================
+   ROOM HELPERS
+========================================================= */
+
+/*
+ * Gets the room type identifier from a room.
+ *
+ * Supports all of these possible Firestore fields:
+ *
+ * roomTypeId
+ * roomType
+ * type
+ * roomTypeName
+ */
+function getRoomTypeId(room: Room) {
+  return (
+    room.roomTypeId ||
+    room.roomType ||
+    room.type ||
+    room.roomTypeName ||
+    room.name
+  );
+}
+
+/*
+ * Gets the display name for a room type.
+ */
+function getRoomTypeName(room: Room, roomTypes: RoomType[]) {
+  const roomTypeId = getRoomTypeId(room);
+
+  const matchingType = roomTypes.find(
+    (type) => type.id === roomTypeId || type.name === roomTypeId,
+  );
+
+  return (
+    room.roomTypeName ||
+    room.roomType ||
+    matchingType?.name ||
+    room.type ||
+    room.name
+  );
+}
+
+/*
+ * Checks whether a room is booked during
+ * any requested night.
+ */
+function isRoomBookedForDates(
+  roomId: string,
+  checkIn: string,
+  checkOut: string,
+  bookings: Booking[],
+) {
+  const requestedNights = getNightDates(checkIn, checkOut);
+
+  if (requestedNights.length === 0) {
+    return false;
+  }
+
+  return bookings.some((booking) => {
+    if (!isBookingActive(booking.status)) {
+      return false;
+    }
+
+    if (booking.roomId !== roomId) {
+      return false;
+    }
+
+    const bookedNights = getBookingNightDates(booking);
+
+    return requestedNights.some((night) => bookedNights.includes(night));
+  });
+}
+
+/* =========================================================
+   STAR RATING
+========================================================= */
 
 function StarRating({ rating }: { rating: number }) {
   return (
@@ -221,12 +358,19 @@ function StarRating({ rating }: { rating: number }) {
   );
 }
 
+/* =========================================================
+   MINI CALENDAR
+========================================================= */
+
 interface MiniCalendarProps {
   checkIn: string;
   checkOut: string;
+
   onCheckInChange: (value: string) => void;
   onCheckOutChange: (value: string) => void;
+
   unavailableDates: Set<string>;
+
   loading: boolean;
 }
 
@@ -253,7 +397,9 @@ function MiniCalendar({
 
     const selectedDate = new Date(`${checkIn}T00:00:00`);
 
-    if (isNaN(selectedDate.getTime())) return;
+    if (isNaN(selectedDate.getTime())) {
+      return;
+    }
 
     setCurrentMonth(
       new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1),
@@ -262,15 +408,18 @@ function MiniCalendar({
 
   const calendarDays = useMemo(() => {
     const year = currentMonth.getFullYear();
+
     const month = currentMonth.getMonth();
 
     const firstDay = new Date(year, month, 1);
+
     const startingWeekday = firstDay.getDay();
 
     const days: Date[] = [];
 
     for (let index = 0; index < 42; index++) {
       const dayNumber = index - startingWeekday + 1;
+
       days.push(new Date(year, month, dayNumber));
     }
 
@@ -283,16 +432,11 @@ function MiniCalendar({
   });
 
   const numberOfNights = useMemo(() => {
-    if (!checkIn || !checkOut) return 0;
+    if (!checkIn || !checkOut) {
+      return 0;
+    }
 
-    const start = new Date(`${checkIn}T00:00:00`);
-    const end = new Date(`${checkOut}T00:00:00`);
-
-    const difference = end.getTime() - start.getTime();
-
-    if (difference <= 0) return 0;
-
-    return Math.ceil(difference / (1000 * 60 * 60 * 24));
+    return getNightDates(checkIn, checkOut).length;
   }, [checkIn, checkOut]);
 
   const isUnavailable = (date: Date) => {
@@ -324,14 +468,26 @@ function MiniCalendar({
   };
 
   const handleDateClick = (date: Date) => {
-    if (isPast(date)) return;
+    if (isPast(date)) {
+      return;
+    }
 
-    if (isUnavailable(date)) return;
+    if (isUnavailable(date)) {
+      return;
+    }
+
+    if (
+      date.getMonth() !== currentMonth.getMonth() ||
+      date.getFullYear() !== currentMonth.getFullYear()
+    ) {
+      setCurrentMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+    }
 
     const value = dateKey(date);
 
     if (!checkIn) {
       onCheckInChange(value);
+
       onCheckOutChange("");
 
       return;
@@ -339,6 +495,7 @@ function MiniCalendar({
 
     if (checkIn && checkOut) {
       onCheckInChange(value);
+
       onCheckOutChange("");
 
       return;
@@ -346,21 +503,22 @@ function MiniCalendar({
 
     if (value <= checkIn) {
       onCheckInChange(value);
+
       onCheckOutChange("");
 
       return;
     }
 
-    const range = getDaysBetweenInclusive(
-      new Date(`${checkIn}T00:00:00`),
-      date,
+    const requestedNights = getNightDates(checkIn, value);
+
+    const hasUnavailable = requestedNights.some((day) =>
+      unavailableDates.has(day),
     );
 
-    const hasUnavailable = range.some((day) => unavailableDates.has(day));
-
     if (hasUnavailable) {
-      onCheckInChange(value);
-      onCheckOutChange("");
+      alert(
+        "One or more nights in this stay are fully booked. Please choose another check-out date.",
+      );
 
       return;
     }
@@ -400,27 +558,31 @@ function MiniCalendar({
 
     const date = new Date(`${value}T00:00:00`);
 
-    if (isNaN(date.getTime())) return null;
+    if (isNaN(date.getTime())) {
+      return null;
+    }
 
     return {
       weekday: date.toLocaleDateString("en-US", {
         weekday: "short",
       }),
+
       month: date.toLocaleDateString("en-US", {
         month: "short",
       }),
+
       day: date.getDate(),
+
       year: date.getFullYear(),
     };
   };
 
   const formattedCheckIn = formatSelectedDate(checkIn);
+
   const formattedCheckOut = formatSelectedDate(checkOut);
 
   return (
     <div className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-white shadow-[0_12px_40px_rgba(10,37,64,0.08)]">
-      {/* TOP ACCENT */}
-
       <div className="h-1.5 bg-gradient-to-r from-[#ef7048] via-[#f58c65] to-[#0a2540]" />
 
       <div className="px-5 pb-4 pt-5 sm:px-6">
@@ -447,17 +609,7 @@ function MiniCalendar({
               onClick={previousMonth}
               disabled={isCurrentMonth()}
               aria-label="Previous month"
-              className="
-                flex h-9 w-9 items-center justify-center
-                rounded-xl border border-slate-200
-                bg-white text-slate-500
-                transition-all
-                hover:border-[#ef7048]
-                hover:bg-[#fff7f3]
-                hover:text-[#ef7048]
-                disabled:cursor-not-allowed
-                disabled:opacity-30
-              "
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-all hover:border-[#ef7048] hover:bg-[#fff7f3] hover:text-[#ef7048] disabled:cursor-not-allowed disabled:opacity-30"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -466,15 +618,7 @@ function MiniCalendar({
               type="button"
               onClick={nextMonth}
               aria-label="Next month"
-              className="
-                flex h-9 w-9 items-center justify-center
-                rounded-xl border border-slate-200
-                bg-white text-slate-500
-                transition-all
-                hover:border-[#ef7048]
-                hover:bg-[#fff7f3]
-                hover:text-[#ef7048]
-              "
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-all hover:border-[#ef7048] hover:bg-[#fff7f3] hover:text-[#ef7048]"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -484,27 +628,19 @@ function MiniCalendar({
         <div className="mt-4 rounded-2xl bg-[#f7fafb] p-1.5">
           <div className="grid grid-cols-2 gap-1.5">
             <div
-              className={`
-                relative overflow-hidden rounded-xl px-3 py-2.5
-                transition-all
-                ${
-                  checkIn
-                    ? "bg-white shadow-sm ring-1 ring-[#ef7048]/20"
-                    : "bg-transparent"
-                }
-              `}
+              className={`relative overflow-hidden rounded-xl px-3 py-2.5 transition-all ${
+                checkIn
+                  ? "bg-white shadow-sm ring-1 ring-[#ef7048]/20"
+                  : "bg-transparent"
+              }`}
             >
               <div className="flex items-center gap-2">
                 <div
-                  className={`
-                    flex h-7 w-7 shrink-0 items-center justify-center
-                    rounded-lg
-                    ${
-                      checkIn
-                        ? "bg-[#0a2540] text-white"
-                        : "bg-slate-200 text-slate-400"
-                    }
-                  `}
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                    checkIn
+                      ? "bg-[#0a2540] text-white"
+                      : "bg-slate-200 text-slate-400"
+                  }`}
                 >
                   <span className="text-[9px] font-bold">IN</span>
                 </div>
@@ -529,27 +665,19 @@ function MiniCalendar({
             </div>
 
             <div
-              className={`
-                relative overflow-hidden rounded-xl px-3 py-2.5
-                transition-all
-                ${
-                  checkOut
-                    ? "bg-white shadow-sm ring-1 ring-[#ef7048]/20"
-                    : "bg-transparent"
-                }
-              `}
+              className={`relative overflow-hidden rounded-xl px-3 py-2.5 transition-all ${
+                checkOut
+                  ? "bg-white shadow-sm ring-1 ring-[#ef7048]/20"
+                  : "bg-transparent"
+              }`}
             >
               <div className="flex items-center gap-2">
                 <div
-                  className={`
-                    flex h-7 w-7 shrink-0 items-center justify-center
-                    rounded-lg
-                    ${
-                      checkOut
-                        ? "bg-[#0a2540] text-white"
-                        : "bg-slate-200 text-slate-400"
-                    }
-                  `}
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                    checkOut
+                      ? "bg-[#0a2540] text-white"
+                      : "bg-slate-200 text-slate-400"
+                  }`}
                 >
                   <span className="text-[8px] font-bold">OUT</span>
                 </div>
@@ -576,8 +704,6 @@ function MiniCalendar({
         </div>
       </div>
 
-      {/* LOADING */}
-
       {loading && (
         <div className="mx-5 mb-3 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 sm:mx-6">
           <div className="h-3 w-3 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
@@ -593,15 +719,7 @@ function MiniCalendar({
           {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => (
             <div
               key={day}
-              className="
-                py-2
-                text-center
-                text-[8px]
-                font-bold
-                uppercase
-                tracking-wider
-                text-slate-400
-              "
+              className="py-2 text-center text-[8px] font-bold uppercase tracking-wider text-slate-400"
             >
               {day}
             </div>
@@ -614,39 +732,49 @@ function MiniCalendar({
               const key = dateKey(date);
 
               const dateMonth = date.getMonth();
+
               const currentMonthNumber = currentMonth.getMonth();
+
               const dateYear = date.getFullYear();
+
               const currentYear = currentMonth.getFullYear();
 
               const isCurrentMonthDate =
                 dateMonth === currentMonthNumber && dateYear === currentYear;
 
               const unavailable = isUnavailable(date);
+
               const past = isPast(date);
+
               const todayDate = isToday(date);
 
               const isCheckIn = isSelectedCheckIn(date);
+
               const isCheckOut = isSelectedCheckOut(date);
+
               const inRange = isInRange(date);
 
-              const disabled = past || unavailable || !isCurrentMonthDate;
+              const disabled = past || unavailable;
+
+              const cellBackground = isCurrentMonthDate
+                ? past
+                  ? "bg-slate-50"
+                  : "bg-white"
+                : past
+                  ? "bg-slate-50"
+                  : "bg-[#fbfcfd]";
 
               return (
                 <div
                   key={key}
-                  className={`
-                    relative min-h-[48px] border-b border-r border-slate-200
-                    sm:min-h-[52px]
-                    ${!isCurrentMonthDate ? "bg-slate-50" : "bg-white"}
-                    ${inRange ? "bg-[#fff1ec]" : ""}
-                  `}
+                  className={`relative min-h-[48px] border-b border-r border-slate-200 sm:min-h-[52px] ${
+                    inRange ? "bg-[#fff1ec]" : cellBackground
+                  }`}
                 >
-                  {/* BOOKED DATE HIGHLIGHT */}
-                  {isCurrentMonthDate && unavailable && (
+                  {unavailable && !past && (
                     <div className="absolute inset-0 bg-red-50" />
                   )}
 
-                  {/* SELECTED RANGE */}
                   {isCheckIn && selectedCheckOut && (
                     <div className="absolute inset-y-0 left-1/2 right-0 bg-[#fff1ec]" />
                   )}
@@ -659,54 +787,46 @@ function MiniCalendar({
                     type="button"
                     disabled={disabled}
                     onClick={() => handleDateClick(date)}
-                    className={`
-                      relative z-10 flex h-full min-h-[48px] w-full flex-col
-                      items-center justify-between px-1 py-1.5 transition
-                      sm:min-h-[52px] sm:px-1.5
-                      ${
-                        !isCurrentMonthDate
-                          ? "cursor-default text-slate-300"
-                          : disabled
-                            ? "cursor-not-allowed"
-                            : "cursor-pointer hover:bg-[#fff7f3]"
-                      }
-                    `}
+                    className={`relative z-10 flex h-full min-h-[48px] w-full flex-col items-center justify-between px-1 py-1.5 transition sm:min-h-[52px] sm:px-1.5 ${
+                      past
+                        ? "cursor-not-allowed text-slate-300"
+                        : unavailable
+                          ? "cursor-not-allowed text-red-300"
+                          : isCurrentMonthDate
+                            ? "cursor-pointer hover:bg-[#fff7f3]"
+                            : "cursor-pointer text-slate-400 hover:bg-[#fff7f3]"
+                    }`}
                   >
                     <span
-                      className={`
-                        flex h-6 w-6 items-center justify-center rounded-full
-                        text-[10px] font-semibold sm:h-7 sm:w-7 sm:text-[11px]
-                        ${
-                          isCheckIn || isCheckOut
-                            ? "bg-[#0a2540] text-white shadow-sm"
-                            : todayDate
-                              ? "bg-blue-600 text-white"
+                      className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold sm:h-7 sm:w-7 sm:text-[11px] ${
+                        isCheckIn || isCheckOut
+                          ? "bg-[#0a2540] text-white shadow-sm"
+                          : todayDate
+                            ? "bg-blue-600 text-white"
+                            : past
+                              ? "text-slate-300"
                               : unavailable
                                 ? "text-red-400"
                                 : isCurrentMonthDate
                                   ? "text-slate-700"
-                                  : "text-slate-300"
-                        }
-                      `}
+                                  : "text-slate-400"
+                      }`}
                     >
                       {date.getDate()}
                     </span>
 
-                    {/* EVENT / STATUS INDICATOR */}
-                    {isCurrentMonthDate && !isCheckIn && !isCheckOut && (
+                    {!past && !isCheckIn && !isCheckOut && (
                       <div className="flex items-center gap-1">
                         <span
-                          className={`
-                            h-1.5 w-1.5 rounded-full
-                            ${unavailable ? "bg-red-400" : "bg-emerald-400"}
-                          `}
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            unavailable ? "bg-red-400" : "bg-emerald-400"
+                          }`}
                         />
 
                         <span
-                          className={`
-                            hidden text-[7px] font-medium sm:block
-                            ${unavailable ? "text-red-400" : "text-emerald-500"}
-                          `}
+                          className={`hidden text-[7px] font-medium sm:block ${
+                            unavailable ? "text-red-400" : "text-emerald-500"
+                          }`}
                         >
                           {unavailable ? "Booked" : "Available"}
                         </span>
@@ -775,7 +895,15 @@ function MiniCalendar({
                   viewBox="0 0 24 24"
                   fill="none"
                   className="h-4 w-4 text-emerald-600"
-                ></svg>
+                >
+                  <path
+                    d="M5 12.5L9.5 17L19 7.5"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </div>
 
               <div className="min-w-0">
@@ -797,18 +925,7 @@ function MiniCalendar({
                 onCheckInChange("");
                 onCheckOutChange("");
               }}
-              className="
-                shrink-0
-                rounded-lg
-                px-2.5
-                py-1.5
-                text-[9px]
-                font-bold
-                text-slate-400
-                transition
-                hover:bg-slate-100
-                hover:text-[#ef7048]
-              "
+              className="shrink-0 rounded-lg px-2.5 py-1.5 text-[9px] font-bold text-slate-400 transition hover:bg-slate-100 hover:text-[#ef7048]"
             >
               Reset
             </button>
@@ -825,7 +942,7 @@ function MiniCalendar({
           <div className="flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
 
-            <span className="text-[9px] text-slate-400">Booked</span>
+            <span className="text-[9px] text-slate-400">Fully Booked</span>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -838,6 +955,10 @@ function MiniCalendar({
     </div>
   );
 }
+
+/* =========================================================
+   TIME OPTIONS
+========================================================= */
 
 const TIME_OPTIONS = [
   "12:00 AM",
@@ -866,25 +987,38 @@ const TIME_OPTIONS = [
   "11:00 PM",
 ];
 
+/* =========================================================
+   RESERVATION MODAL
+========================================================= */
+
 interface MinicalReservationModalProps {
   open: boolean;
+
   onClose: () => void;
 
+  roomTypes: RoomType[];
+
   rooms: Room[];
+
   bookings: Booking[];
 
   checkIn: string;
+
   checkOut: string;
+
   guests: string;
 
   onCheckInChange: (value: string) => void;
+
   onCheckOutChange: (value: string) => void;
+
   onGuestsChange: (value: string) => void;
 }
 
 function MinicalReservationModal({
   open,
   onClose,
+  roomTypes,
   rooms,
   bookings,
   checkIn,
@@ -894,10 +1028,6 @@ function MinicalReservationModal({
   onCheckOutChange,
   onGuestsChange,
 }: MinicalReservationModalProps) {
-  const [bookingType, setBookingType] = useState("Reservation");
-
-  const [bookingSource, setBookingSource] = useState("Walk-in / Telephone");
-
   const [guestName, setGuestName] = useState("");
 
   const [children, setChildren] = useState("0");
@@ -920,59 +1050,262 @@ function MinicalReservationModal({
 
   const TAX_RATE = 0;
 
-  const roomTypes = useMemo(() => {
-    return Array.from(
-      new Map(
-        rooms.map((room) => [room.type || room.name, room.type || room.name]),
-      ).values(),
-    );
-  }, [rooms]);
+  /* =======================================================
+     BUILD ROOM TYPES
+  ======================================================= */
+
+  /*
+   * IMPORTANT:
+   *
+   * Room types are built from BOTH:
+   *
+   * 1. roomTypes collection
+   * 2. rooms collection
+   *
+   * Therefore the form still works even if
+   * roomTypes collection is empty.
+   */
+  const availableRoomTypes = useMemo(() => {
+    const typeMap = new Map<string, RoomType>();
+
+    /*
+     * First load official room types.
+     */
+    roomTypes.forEach((type) => {
+      if (!type.id) return;
+
+      typeMap.set(type.id, {
+        ...type,
+        name: type.name || type.id,
+      });
+    });
+
+    /*
+     * Then create missing room types from rooms.
+     */
+    rooms.forEach((room) => {
+      const typeId =
+        room.roomTypeId || room.roomType || room.type || room.roomTypeName;
+
+      if (!typeId) {
+        return;
+      }
+
+      /*
+       * If typeId is already a roomTypes
+       * document ID, use it.
+       */
+      if (typeMap.has(typeId)) {
+        return;
+      }
+
+      /*
+       * Try to find a room type whose NAME
+       * matches the room's room type.
+       */
+      const existingByName = Array.from(typeMap.values()).find(
+        (type) =>
+          type.name.toLowerCase().trim() ===
+          String(typeId).toLowerCase().trim(),
+      );
+
+      if (existingByName) {
+        return;
+      }
+
+      typeMap.set(typeId, {
+        id: typeId,
+
+        name: room.roomTypeName || room.roomType || room.type || typeId,
+
+        price: room.price,
+
+        capacity: room.capacity,
+
+        image: room.image || room.images?.[0],
+      });
+    });
+
+    return Array.from(typeMap.values());
+  }, [roomTypes, rooms]);
+
+  /* =======================================================
+     AUTO SELECT FIRST ROOM TYPE
+  ======================================================= */
 
   useEffect(() => {
-    if (!selectedRoomType && roomTypes.length > 0) {
-      setSelectedRoomType(roomTypes[0]);
+    if (availableRoomTypes.length === 0) {
+      setSelectedRoomType("");
+      setSelectedRoom("");
+
+      return;
     }
-  }, [roomTypes, selectedRoomType]);
+
+    /*
+     * If the currently selected room type
+     * still exists, keep it.
+     */
+    const currentExists = availableRoomTypes.some(
+      (type) => type.id === selectedRoomType,
+    );
+
+    if (selectedRoomType && currentExists) {
+      return;
+    }
+
+    /*
+     * Otherwise select first type.
+     */
+    setSelectedRoomType(availableRoomTypes[0].id);
+
+    setSelectedRoom("");
+  }, [availableRoomTypes, selectedRoomType]);
+
+  /* =======================================================
+     FILTER ROOMS
+  ======================================================= */
 
   const filteredRooms = useMemo(() => {
-    return rooms.filter(
-      (room) => (room.type || room.name) === selectedRoomType,
-    );
-  }, [rooms, selectedRoomType]);
+    /*
+     * No room type selected.
+     *
+     * Return all rooms so the component
+     * doesn't get stuck empty.
+     */
+    if (!selectedRoomType) {
+      return rooms;
+    }
+
+    return rooms.filter((room) => {
+      const roomTypeId =
+        room.roomTypeId || room.roomType || room.type || room.roomTypeName;
+
+      /*
+       * Direct ID match.
+       */
+      if (roomTypeId === selectedRoomType) {
+        return true;
+      }
+
+      /*
+       * Match room type name.
+       */
+      const selectedType = availableRoomTypes.find(
+        (type) => type.id === selectedRoomType,
+      );
+
+      if (selectedType && room.roomTypeName) {
+        return (
+          room.roomTypeName.toLowerCase().trim() ===
+          selectedType.name.toLowerCase().trim()
+        );
+      }
+
+      if (selectedType && room.roomType) {
+        return (
+          room.roomType.toLowerCase().trim() ===
+          selectedType.name.toLowerCase().trim()
+        );
+      }
+
+      if (selectedType && room.type) {
+        return (
+          room.type.toLowerCase().trim() ===
+          selectedType.name.toLowerCase().trim()
+        );
+      }
+
+      return false;
+    });
+  }, [rooms, selectedRoomType, availableRoomTypes]);
+
+  /* =======================================================
+     AVAILABLE ROOMS FOR DATES
+  ======================================================= */
+
+  const availableRoomsForDates = useMemo(() => {
+    if (!checkIn || !checkOut) {
+      return filteredRooms.filter((room) => room.available !== false);
+    }
+
+    return filteredRooms.filter((room) => {
+      if (room.available === false) {
+        return false;
+      }
+
+      return !isRoomBookedForDates(room.id, checkIn, checkOut, bookings);
+    });
+  }, [filteredRooms, checkIn, checkOut, bookings]);
+
+  /* =======================================================
+     CLEAR INVALID SELECTED ROOM
+  ======================================================= */
 
   useEffect(() => {
-    if (!selectedRoomType) return;
+    if (!selectedRoom) {
+      return;
+    }
 
-    const matchingRoom = rooms.find(
-      (room) => (room.type || room.name) === selectedRoomType,
-    );
+    const currentRoom = filteredRooms.find((room) => room.id === selectedRoom);
 
-    if (matchingRoom) {
-      setSelectedRoom(matchingRoom.id);
-    } else {
+    /*
+     * Room type changed and the old
+     * room doesn't belong to it anymore.
+     */
+    if (!currentRoom) {
+      setSelectedRoom("");
+
+      return;
+    }
+
+    /*
+     * If dates are selected and room is
+     * booked, clear it.
+     */
+    if (
+      checkIn &&
+      checkOut &&
+      isRoomBookedForDates(selectedRoom, checkIn, checkOut, bookings)
+    ) {
       setSelectedRoom("");
     }
-  }, [selectedRoomType, rooms]);
+  }, [selectedRoom, filteredRooms, checkIn, checkOut, bookings]);
+
+  /* =======================================================
+     SELECTED ROOM
+  ======================================================= */
 
   const selectedRoomData = useMemo(() => {
     return rooms.find((room) => room.id === selectedRoom);
   }, [rooms, selectedRoom]);
 
+  /* =======================================================
+     SELECTED ROOM TYPE
+  ======================================================= */
+
+  const selectedRoomTypeData = useMemo(() => {
+    return availableRoomTypes.find((type) => type.id === selectedRoomType);
+  }, [availableRoomTypes, selectedRoomType]);
+
+  /* =======================================================
+     NUMBER OF NIGHTS
+  ======================================================= */
+
   const numberOfDays = useMemo(() => {
-    if (!checkIn || !checkOut) return 0;
+    if (!checkIn || !checkOut) {
+      return 0;
+    }
 
-    const start = new Date(`${checkIn}T00:00:00`);
-
-    const end = new Date(`${checkOut}T00:00:00`);
-
-    const difference = end.getTime() - start.getTime();
-
-    if (difference <= 0) return 0;
-
-    return Math.ceil(difference / (1000 * 60 * 60 * 24));
+    return getNightDates(checkIn, checkOut).length;
   }, [checkIn, checkOut]);
 
-  const nightlyRate = Number(selectedRoomData?.price || 0);
+  /* =======================================================
+     RATE
+  ======================================================= */
+
+  const nightlyRate = Number(
+    selectedRoomData?.price ?? selectedRoomTypeData?.price ?? 0,
+  );
 
   const totalBeforeTax = nightlyRate * numberOfDays;
 
@@ -982,78 +1315,64 @@ function MinicalReservationModal({
 
   const averageRate = numberOfDays > 0 ? totalBeforeTax / numberOfDays : 0;
 
+  /* =======================================================
+     SELECTED ROOM UNAVAILABLE
+  ======================================================= */
+
   const selectedRoomUnavailable = useMemo(() => {
     if (!selectedRoom || !checkIn || !checkOut) {
       return false;
     }
 
-    const requestedNights = getNightDates(checkIn, checkOut);
-
-    if (requestedNights.length === 0) {
-      return false;
+    if (selectedRoomData?.available === false) {
+      return true;
     }
 
-    return bookings.some((booking) => {
-      const status = String(booking.status || "confirmed").toLowerCase();
+    return isRoomBookedForDates(selectedRoom, checkIn, checkOut, bookings);
+  }, [selectedRoom, selectedRoomData, checkIn, checkOut, bookings]);
 
-      if (
-        status === "cancelled" ||
-        status === "canceled" ||
-        status === "rejected"
-      ) {
-        return false;
-      }
-
-      if (booking.roomId !== selectedRoom) {
-        return false;
-      }
-
-      const bookingCheckIn = parseFirestoreDate(booking.checkIn);
-
-      const bookingCheckOut = parseFirestoreDate(booking.checkOut);
-
-      if (!bookingCheckIn || !bookingCheckOut) {
-        return false;
-      }
-
-      const bookedNights = getNightDates(
-        formatDateInput(bookingCheckIn),
-        formatDateInput(bookingCheckOut),
-      );
-
-      return requestedNights.some((night) => bookedNights.includes(night));
-    });
-  }, [selectedRoom, checkIn, checkOut, bookings]);
-
-  if (!open) {
-    return null;
-  }
+  /* =======================================================
+     CREATE RESERVATION
+  ======================================================= */
 
   const handleCreateReservation = async () => {
-    if (saving) return;
+    if (saving) {
+      return;
+    }
 
     if (!guestName.trim()) {
       alert("Please enter the guest name.");
+
       return;
     }
 
     if (!checkIn) {
       alert("Please select a check-in date.");
+
       return;
     }
 
     if (!checkOut) {
       alert("Please select a check-out date.");
+
       return;
     }
 
     if (checkOut <= checkIn) {
       alert("Check-out must be after check-in.");
+
+      return;
+    }
+
+    if (!selectedRoomType) {
+      alert("Please select a room type.");
+
       return;
     }
 
     if (!selectedRoom) {
       alert("Please select a room.");
+
       return;
     }
 
@@ -1074,16 +1393,27 @@ function MinicalReservationModal({
     try {
       setSaving(true);
 
+      /*
+       * Determine the actual room type ID.
+       *
+       * If the room itself has roomTypeId,
+       * always prefer that.
+       */
+      const actualRoomTypeId = selectedRoomData?.roomTypeId || selectedRoomType;
+
+      const actualRoomTypeName =
+        selectedRoomData?.roomTypeName ||
+        selectedRoomData?.roomType ||
+        selectedRoomTypeData?.name ||
+        selectedRoomData?.type ||
+        "";
+
       const reservation = {
         guestName: guestName.trim(),
 
         adults: Number(guests),
 
         children: Number(children),
-
-        bookingType,
-
-        bookingSource,
 
         checkIn,
 
@@ -1093,12 +1423,19 @@ function MinicalReservationModal({
 
         checkOutTime,
 
+        /*
+         * INDIVIDUAL ROOM
+         */
         roomId: selectedRoom,
 
-        roomTypeId:
-          selectedRoomData?.type || selectedRoomData?.name || selectedRoomType,
-
         roomName: selectedRoomData?.name || "",
+
+        /*
+         * ROOM TYPE
+         */
+        roomTypeId: actualRoomTypeId,
+
+        roomTypeName: actualRoomTypeName,
 
         chargeType,
 
@@ -1135,10 +1472,6 @@ function MinicalReservationModal({
 
       setChildren("0");
 
-      setBookingType("Reservation");
-
-      setBookingSource("Walk-in / Telephone");
-
       setCheckInTime("12:00 AM");
 
       setCheckOutTime("12:00 AM");
@@ -1148,6 +1481,8 @@ function MinicalReservationModal({
       setRateType("Nightly");
 
       setNotes("");
+
+      setSelectedRoom("");
 
       onCheckInChange("");
 
@@ -1165,9 +1500,17 @@ function MinicalReservationModal({
     }
   };
 
+  if (!open) {
+    return null;
+  }
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm sm:p-6">
       <div className="flex max-h-[95vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        {/* =================================================
+            HEADER
+        ================================================= */}
+
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-5 sm:px-7">
           <div>
             <h2 className="text-lg font-semibold text-slate-700">
@@ -1190,55 +1533,9 @@ function MinicalReservationModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="border-b border-slate-200 px-5 py-6 sm:px-8">
-            <h3 className="mb-5 text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Booking Detail
-            </h3>
-
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600">
-                  Booking Type
-                </label>
-
-                <select
-                  value={bookingType}
-                  onChange={(e) => setBookingType(e.target.value)}
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                >
-                  <option>Reservation</option>
-
-                  <option>Walk-in</option>
-
-                  <option>Group</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600">
-                  Booking Source
-                </label>
-
-                <select
-                  value={bookingSource}
-                  onChange={(e) => setBookingSource(e.target.value)}
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                >
-                  <option>Walk-in / Telephone</option>
-
-                  <option>Website</option>
-
-                  <option>Booking.com</option>
-
-                  <option>Agoda</option>
-
-                  <option>Expedia</option>
-
-                  <option>Travel Agent</option>
-                </select>
-              </div>
-            </div>
-          </div>
+          {/* =================================================
+              GUEST
+          ================================================= */}
 
           <div className="border-b border-slate-200 px-5 py-6 sm:px-8">
             <h3 className="mb-5 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -1298,12 +1595,18 @@ function MinicalReservationModal({
             </div>
           </div>
 
+          {/* =================================================
+              STAY DETAILS
+          ================================================= */}
+
           <div className="border-b border-slate-200 px-5 py-6 sm:px-8">
             <h3 className="mb-5 text-xs font-semibold uppercase tracking-wider text-slate-500">
               Stay Details
             </h3>
 
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              {/* CHECK IN */}
+
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Check-in Date
@@ -1314,6 +1617,7 @@ function MinicalReservationModal({
                   <input
                     type="date"
                     value={checkIn}
+                    min={formatDateInput(startOfDay(new Date()))}
                     onChange={(e) => onCheckInChange(e.target.value)}
                     className="h-10 min-w-0 flex-1 rounded-l-md border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"
                   />
@@ -1332,6 +1636,8 @@ function MinicalReservationModal({
                 </div>
               </div>
 
+              {/* CHECK OUT */}
+
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Check-out Date
@@ -1342,7 +1648,7 @@ function MinicalReservationModal({
                   <input
                     type="date"
                     value={checkOut}
-                    min={checkIn || undefined}
+                    min={checkIn || formatDateInput(startOfDay(new Date()))}
                     onChange={(e) => onCheckOutChange(e.target.value)}
                     className="h-10 min-w-0 flex-1 rounded-l-md border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"
                   />
@@ -1362,30 +1668,53 @@ function MinicalReservationModal({
               </div>
             </div>
 
+            {/* =================================================
+                ROOM TYPE + ROOM + DAYS
+            ================================================= */}
+
             <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1fr_130px]">
               {/* ROOM TYPE */}
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Room Type
+                  <span className="ml-1 text-red-500">*</span>
                 </label>
 
                 <select
                   value={selectedRoomType}
-                  onChange={(e) => setSelectedRoomType(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedRoomType(e.target.value);
+
+                    /*
+                     * Clear old room when
+                     * room type changes.
+                     */
+                    setSelectedRoom("");
+                  }}
                   className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"
                 >
-                  {roomTypes.length === 0 && (
-                    <option value="">No room types</option>
-                  )}
+                  <option value="">
+                    {availableRoomTypes.length === 0
+                      ? "No room types"
+                      : "Select room type"}
+                  </option>
 
-                  {roomTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
+                  {availableRoomTypes.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.name}
                     </option>
                   ))}
                 </select>
+
+                {availableRoomTypes.length === 0 && (
+                  <p className="mt-1 text-[11px] text-red-500">
+                    No room types or rooms were loaded from Firestore.
+                  </p>
+                )}
               </div>
+
+              {/* ROOM */}
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
@@ -1396,21 +1725,62 @@ function MinicalReservationModal({
                 <select
                   value={selectedRoom}
                   onChange={(e) => setSelectedRoom(e.target.value)}
-                  className={`h-10 w-full rounded-md border bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500 ${
+                  disabled={!selectedRoomType}
+                  className={`h-10 w-full rounded-md border bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 ${
                     selectedRoomUnavailable
                       ? "border-red-400"
                       : "border-slate-300"
                   }`}
                 >
-                  <option value="">Select room</option>
+                  <option value="">
+                    {!selectedRoomType
+                      ? "Select room type first"
+                      : filteredRooms.length === 0
+                        ? "No rooms available"
+                        : "Select room"}
+                  </option>
 
-                  {filteredRooms.map((room) => (
-                    <option key={room.id} value={room.id}>
-                      {room.name}
-                      {room.available === false ? " (Unavailable)" : ""}
-                    </option>
-                  ))}
+                  {filteredRooms.map((room) => {
+                    const booked = Boolean(
+                      checkIn &&
+                      checkOut &&
+                      isRoomBookedForDates(
+                        room.id,
+                        checkIn,
+                        checkOut,
+                        bookings,
+                      ),
+                    );
+
+                    const disabled = room.available === false || booked;
+
+                    return (
+                      <option key={room.id} value={room.id} disabled={disabled}>
+                        {room.name}
+                        {room.available === false
+                          ? " (Unavailable)"
+                          : booked
+                            ? " (Booked)"
+                            : ""}
+                      </option>
+                    );
+                  })}
                 </select>
+
+                {filteredRooms.length === 0 && selectedRoomType && (
+                  <p className="mt-1 text-[11px] text-red-500">
+                    No rooms belong to this room type.
+                  </p>
+                )}
+
+                {filteredRooms.length > 0 &&
+                  availableRoomsForDates.length === 0 &&
+                  checkIn &&
+                  checkOut && (
+                    <p className="mt-1 text-[11px] text-red-500">
+                      All rooms of this type are booked for the selected dates.
+                    </p>
+                  )}
 
                 {selectedRoomUnavailable && (
                   <p className="mt-1 text-[11px] text-red-500">
@@ -1418,6 +1788,8 @@ function MinicalReservationModal({
                   </p>
                 )}
               </div>
+
+              {/* DAYS */}
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
@@ -1431,7 +1803,87 @@ function MinicalReservationModal({
                 />
               </div>
             </div>
+
+            {/* =================================================
+                ROOM INFORMATION
+            ================================================= */}
+
+            {selectedRoomData && (
+              <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-blue-500">
+                      Selected Room
+                    </p>
+
+                    <p className="mt-0.5 text-sm font-semibold text-slate-700">
+                      {selectedRoomData.name}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-blue-500">
+                      Room Type
+                    </p>
+
+                    <p className="mt-0.5 text-sm font-semibold text-slate-700">
+                      {getRoomTypeName(selectedRoomData, availableRoomTypes)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-blue-500">
+                      Capacity
+                    </p>
+
+                    <p className="mt-0.5 text-sm font-semibold text-slate-700">
+                      {selectedRoomData.capacity ||
+                        selectedRoomTypeData?.capacity ||
+                        0}{" "}
+                      guests
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-blue-500">
+                      Rate
+                    </p>
+
+                    <p className="mt-0.5 text-sm font-semibold text-slate-700">
+                      ₱
+                      {Number(
+                        selectedRoomData.price ||
+                          selectedRoomTypeData?.price ||
+                          0,
+                      ).toLocaleString("en-PH")}
+                      /night
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* DEBUG INFO */}
+
+            {rooms.length === 0 && (
+              <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <p className="text-xs font-semibold text-amber-700">
+                  No rooms were loaded.
+                </p>
+
+                <p className="mt-1 text-[11px] text-amber-600">
+                  Check your Firestore
+                  <strong> rooms </strong>
+                  collection and make sure this page uses the same Firebase
+                  project as your Rooms page.
+                </p>
+              </div>
+            )}
           </div>
+
+          {/* =================================================
+              CHARGES
+          ================================================= */}
 
           <div className="border-b border-slate-200 px-5 py-6 sm:px-8">
             <h3 className="mb-5 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -1473,6 +1925,8 @@ function MinicalReservationModal({
                 </div>
               </div>
 
+              {/* RATE */}
+
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Rate
@@ -1490,6 +1944,8 @@ function MinicalReservationModal({
                   />
                 </div>
               </div>
+
+              {/* TOTAL */}
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
@@ -1523,6 +1979,8 @@ function MinicalReservationModal({
                 />
               </div>
 
+              {/* PRE TAX */}
+
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Total Pre Tax
@@ -1540,6 +1998,10 @@ function MinicalReservationModal({
               </div>
             </div>
           </div>
+
+          {/* =================================================
+              NOTES
+          ================================================= */}
 
           <div className="px-5 py-6 sm:px-8">
             <label className="mb-1.5 block text-xs font-medium text-slate-600">
@@ -1561,7 +2023,9 @@ function MinicalReservationModal({
           </div>
         </div>
 
-        {/* FOOTER */}
+        {/* =================================================
+            FOOTER
+        ================================================= */}
 
         <div className="flex shrink-0 items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-4 sm:px-8">
           <button
@@ -1576,7 +2040,7 @@ function MinicalReservationModal({
           <button
             type="button"
             onClick={handleCreateReservation}
-            disabled={saving}
+            disabled={saving || !selectedRoom || selectedRoomUnavailable}
             className="rounded-md bg-[#1677c8] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1268ae] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Creating Reservation..." : "Create Reservation"}
@@ -1587,6 +2051,10 @@ function MinicalReservationModal({
   );
 }
 
+/* =========================================================
+   LANDING PAGE
+========================================================= */
+
 export default function Landing() {
   const [checkIn, setCheckIn] = useState("");
 
@@ -1595,6 +2063,8 @@ export default function Landing() {
   const [guests, setGuests] = useState("2");
 
   const [reservationOpen, setReservationOpen] = useState(false);
+
+  const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
 
   const [rooms, setRooms] = useState<Room[]>([]);
 
@@ -1608,16 +2078,23 @@ export default function Landing() {
 
   const [bookingLoading, setBookingLoading] = useState(true);
 
+  /* =======================================================
+     LOAD DATA FROM FIRESTORE
+  ======================================================= */
+
   useEffect(() => {
     const loadLandingData = async () => {
       try {
         const [
+          roomTypesSnapshot,
           roomsSnapshot,
           servicesSnapshot,
           reviewsSnapshot,
           bookingsSnapshot,
         ] = await Promise.all([
-          getDocs(query(collection(customerDb, "roomTypes"), limit(6))),
+          getDocs(collection(customerDb, "roomTypes")),
+
+          getDocs(collection(customerDb, "rooms")),
 
           getDocs(query(collection(customerDb, "services"), limit(6))),
 
@@ -1626,25 +2103,111 @@ export default function Landing() {
           getDocs(collection(customerDb, "bookings")),
         ]);
 
-        const roomData = roomsSnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Room[];
+        /* =================================================
+             ROOM TYPES
+          ================================================= */
+
+        const roomTypeData: RoomType[] = roomTypesSnapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          return {
+            id: doc.id,
+
+            name: String(data.name || data.title || doc.id),
+
+            price: data.price !== undefined ? Number(data.price) : undefined,
+
+            capacity:
+              data.capacity !== undefined ? Number(data.capacity) : undefined,
+
+            images: Array.isArray(data.images) ? data.images : [],
+
+            image: data.image ? String(data.image) : undefined,
+
+            description: data.description
+              ? String(data.description)
+              : undefined,
+
+            available: data.available !== false,
+          };
+        });
+
+        /* =================================================
+             ROOMS
+          ================================================= */
+
+        const roomData: Room[] = roomsSnapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          return {
+            id: doc.id,
+
+            name: String(data.name || data.roomName || `Room ${doc.id}`),
+
+            /*
+             * Main field.
+             */
+            roomTypeId: data.roomTypeId ? String(data.roomTypeId) : undefined,
+
+            /*
+             * Optional fields.
+             */
+            roomTypeName: data.roomTypeName
+              ? String(data.roomTypeName)
+              : undefined,
+
+            roomType: data.roomType ? String(data.roomType) : undefined,
+
+            type: data.type ? String(data.type) : undefined,
+
+            images: Array.isArray(data.images) ? data.images : [],
+
+            image: data.image ? String(data.image) : undefined,
+
+            price: Number(data.price || 0),
+
+            capacity: Number(data.capacity || 0),
+
+            rating: Number(data.rating || 0),
+
+            reviews: Number(data.reviews || 0),
+
+            available: data.available !== false,
+          };
+        });
+
+        /* =================================================
+             SERVICES
+          ================================================= */
 
         const serviceData = servicesSnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         })) as Service[];
 
+        /* =================================================
+             REVIEWS
+          ================================================= */
+
         const reviewData = reviewsSnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         })) as Review[];
 
+        /* =================================================
+             BOOKINGS
+          ================================================= */
+
         const bookingData = bookingsSnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         })) as Booking[];
+
+        /* =================================================
+             SAVE STATE
+          ================================================= */
+
+        setRoomTypes(roomTypeData);
 
         setRooms(roomData);
 
@@ -1653,6 +2216,18 @@ export default function Landing() {
         setReviews(reviewData);
 
         setBookings(bookingData);
+
+        /*
+         * DEBUG
+         *
+         * Open browser console and verify
+         * these values.
+         */
+        console.log("ROOM TYPES FROM FIRESTORE:", roomTypeData);
+
+        console.log("ROOMS FROM FIRESTORE:", roomData);
+
+        console.log("BOOKINGS FROM FIRESTORE:", bookingData);
       } catch (error) {
         console.error("Error loading landing page data:", error);
       } finally {
@@ -1665,39 +2240,57 @@ export default function Landing() {
     loadLandingData();
   }, []);
 
+  /* =======================================================
+     FULLY BOOKED DATES
+  ======================================================= */
+
   const unavailableDates = useMemo(() => {
     const dates = new Set<string>();
 
-    bookings.forEach((booking) => {
-      const status = String(booking.status || "confirmed").toLowerCase();
+    if (rooms.length === 0) {
+      return dates;
+    }
 
-      if (
-        status === "cancelled" ||
-        status === "canceled" ||
-        status === "rejected"
-      ) {
-        return;
+    const today = startOfDay(new Date());
+
+    for (let offset = 0; offset <= 730; offset++) {
+      const date = addDays(today, offset);
+
+      const key = dateKey(date);
+
+      const everyRoomUnavailable = rooms.every((room) => {
+        if (room.available === false) {
+          return true;
+        }
+
+        const booked = bookings.some((booking) => {
+          if (!isBookingActive(booking.status)) {
+            return false;
+          }
+
+          if (booking.roomId !== room.id) {
+            return false;
+          }
+
+          const bookedNights = getBookingNightDates(booking);
+
+          return bookedNights.includes(key);
+        });
+
+        return booked;
+      });
+
+      if (everyRoomUnavailable) {
+        dates.add(key);
       }
-
-      const start = parseFirestoreDate(booking.checkIn);
-
-      const end = parseFirestoreDate(booking.checkOut);
-
-      if (!start || !end) return;
-
-      let current = startOfDay(start);
-
-      const checkout = startOfDay(end);
-
-      while (current < checkout) {
-        dates.add(dateKey(current));
-
-        current = addDays(current, 1);
-      }
-    });
+    }
 
     return dates;
-  }, [bookings]);
+  }, [rooms, bookings]);
+
+  /* =======================================================
+     SEARCH
+  ======================================================= */
 
   const handleSearch = () => {
     if (!checkIn) {
@@ -1718,18 +2311,15 @@ export default function Landing() {
       return;
     }
 
-    const range = getDaysBetweenInclusive(
-      new Date(`${checkIn}T00:00:00`),
-      new Date(`${checkOut}T00:00:00`),
+    const requestedNights = getNightDates(checkIn, checkOut);
+
+    const hasUnavailable = requestedNights.some((date) =>
+      unavailableDates.has(date),
     );
-
-    const nights = range.slice(0, -1);
-
-    const hasUnavailable = nights.some((date) => unavailableDates.has(date));
 
     if (hasUnavailable) {
       alert(
-        "One or more selected nights are already booked. Please choose another date.",
+        "One or more selected nights are fully booked. Please choose another date.",
       );
 
       return;
@@ -1752,9 +2342,11 @@ export default function Landing() {
 
   return (
     <div className="overflow-hidden bg-background">
-      <section className="relative min-h-[calc(100vh-72px)] overflow-hidden">
-        {/* BACKGROUND */}
+      {/* =================================================
+          HERO
+      ================================================= */}
 
+      <section className="relative min-h-[calc(100vh-72px)] overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{
@@ -1769,11 +2361,9 @@ export default function Landing() {
           <div className="absolute inset-0 bg-gradient-to-t from-[#06243b]/80 via-transparent to-[#06243b]/20" />
         </div>
 
-        {/* CONTENT */}
-
         <div className="relative z-10 mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-[1600px] items-center px-5 py-12 sm:px-8 lg:px-12 xl:px-16">
           <div className="grid w-full grid-cols-1 items-center gap-10 xl:grid-cols-[1fr_520px]">
-            {/* LEFT */}
+            {/* HERO CONTENT */}
 
             <div className="max-w-4xl">
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-4 py-2 backdrop-blur-md">
@@ -1834,8 +2424,6 @@ export default function Landing() {
 
             <div className="w-full">
               <div className="overflow-hidden rounded-[28px] border border-white/30 bg-white/95 shadow-2xl backdrop-blur-xl">
-                {/* HEADER */}
-
                 <div className="border-b border-slate-100 px-6 py-5">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1860,8 +2448,6 @@ export default function Landing() {
                 </div>
 
                 <div className="p-4 sm:p-5">
-                  {/* PREMIUM CALENDAR */}
-
                   <MiniCalendar
                     checkIn={checkIn}
                     checkOut={checkOut}
@@ -1870,8 +2456,6 @@ export default function Landing() {
                     unavailableDates={unavailableDates}
                     loading={bookingLoading}
                   />
-
-                  {/* GUESTS */}
 
                   <div className="mt-4">
                     <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -1892,8 +2476,6 @@ export default function Landing() {
                     </select>
                   </div>
 
-                  {/* RESERVATION */}
-
                   <button
                     type="button"
                     onClick={openReservation}
@@ -1902,8 +2484,6 @@ export default function Landing() {
                     <CalendarDays className="h-5 w-5" />
                     Make Reservation
                   </button>
-
-                  {/* SEARCH ROOMS */}
 
                   <button
                     type="button"
@@ -1924,6 +2504,10 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* =================================================
+          STATS
+      ================================================= */}
+
       <section className="relative z-10 bg-[#0a2540] text-white">
         <div className="mx-auto grid max-w-[1600px] grid-cols-2 divide-white/10 md:grid-cols-4 md:divide-x">
           {[
@@ -1932,7 +2516,7 @@ export default function Landing() {
               label: "Dive Sites",
             },
             {
-              value: "6",
+              value: roomTypes.length || availableRoomTypeCount(rooms),
               label: "Room Types",
             },
             {
@@ -1961,6 +2545,10 @@ export default function Landing() {
           ))}
         </div>
       </section>
+
+      {/* =================================================
+          ROOMS
+      ================================================= */}
 
       <section className="mx-auto max-w-[1600px] px-5 py-20 sm:px-8 lg:px-12 xl:px-16">
         <div className="mb-10 flex items-end justify-between">
@@ -2005,6 +2593,8 @@ export default function Landing() {
                 room.image ||
                 "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800";
 
+              const roomType = getRoomTypeName(room, roomTypes);
+
               return (
                 <Link
                   key={room.id}
@@ -2020,14 +2610,14 @@ export default function Landing() {
 
                     <div className="absolute left-4 top-4">
                       <span className="rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold capitalize text-[#0a2540] backdrop-blur">
-                        {room.type?.replace("-", " ")}
+                        {roomType.replace("-", " ")}
                       </span>
                     </div>
 
                     {room.available === false && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                         <span className="rounded-full bg-black/70 px-4 py-2 text-sm font-semibold text-white">
-                          Fully Booked
+                          Unavailable
                         </span>
                       </div>
                     )}
@@ -2074,6 +2664,10 @@ export default function Landing() {
           </div>
         )}
       </section>
+
+      {/* =================================================
+          SERVICES
+      ================================================= */}
 
       <section className="bg-[#f3f8fa]">
         <div className="mx-auto max-w-[1600px] px-5 py-20 sm:px-8 lg:px-12 xl:px-16">
@@ -2147,6 +2741,10 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* =================================================
+          WHY US
+      ================================================= */}
+
       <section className="mx-auto max-w-[1600px] px-5 py-20 sm:px-8 lg:px-12 xl:px-16">
         <div className="mb-14 text-center">
           <p className="mb-2 text-sm font-medium uppercase tracking-wider text-[#ef7048]">
@@ -2207,6 +2805,10 @@ export default function Landing() {
           ))}
         </div>
       </section>
+
+      {/* =================================================
+          REVIEWS
+      ================================================= */}
 
       <section className="bg-[#0a2540] text-white">
         <div className="mx-auto max-w-[1600px] px-5 py-20 sm:px-8 lg:px-12 xl:px-16">
@@ -2287,6 +2889,10 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* =================================================
+          AI ASSISTANT
+      ================================================= */}
+
       <section className="mx-auto max-w-[1600px] px-5 py-20 sm:px-8 lg:px-12 xl:px-16">
         <div className="flex flex-col items-center gap-10 rounded-[32px] border border-slate-200 bg-gradient-to-br from-[#edf5f7] to-white p-8 md:flex-row md:p-12">
           <div className="flex-1">
@@ -2341,6 +2947,10 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* =================================================
+          CONTACT
+      ================================================= */}
+
       <section className="bg-slate-100">
         <div className="mx-auto max-w-[1600px] px-5 py-16 text-center sm:px-8 lg:px-12 xl:px-16">
           <h2
@@ -2383,9 +2993,14 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* =================================================
+          RESERVATION MODAL
+      ================================================= */}
+
       <MinicalReservationModal
         open={reservationOpen}
         onClose={() => setReservationOpen(false)}
+        roomTypes={roomTypes}
         rooms={rooms}
         bookings={bookings}
         checkIn={checkIn}
@@ -2397,4 +3012,23 @@ export default function Landing() {
       />
     </div>
   );
+}
+
+/* =========================================================
+   ROOM TYPE COUNT HELPER
+========================================================= */
+
+function availableRoomTypeCount(rooms: Room[]) {
+  const types = new Set<string>();
+
+  rooms.forEach((room) => {
+    const type =
+      room.roomTypeId || room.roomType || room.type || room.roomTypeName;
+
+    if (type) {
+      types.add(type);
+    }
+  });
+
+  return types.size || 0;
 }
