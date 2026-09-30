@@ -29,10 +29,6 @@ import {
   X,
 } from "lucide-react";
 
-/* =========================================================
-   TYPES
-========================================================= */
-
 interface Room {
   id: string;
   name: string;
@@ -77,10 +73,6 @@ interface Booking {
   adults?: number;
   children?: number;
 }
-
-/* =========================================================
-   HELPERS
-========================================================= */
 
 function formatDateInput(date: Date) {
   const year = date.getFullYear();
@@ -212,10 +204,6 @@ function getNightDates(checkIn: string, checkOut: string) {
   return dates;
 }
 
-/* =========================================================
-   STAR RATING
-========================================================= */
-
 function StarRating({ rating }: { rating: number }) {
   return (
     <div className="flex items-center gap-0.5">
@@ -232,10 +220,6 @@ function StarRating({ rating }: { rating: number }) {
     </div>
   );
 }
-
-/* =========================================================
-   PREMIUM MINI AVAILABILITY CALENDAR
-========================================================= */
 
 interface MiniCalendarProps {
   checkIn: string;
@@ -264,10 +248,6 @@ function MiniCalendar({
 
   const selectedCheckOut = checkOut ? new Date(`${checkOut}T00:00:00`) : null;
 
-  /* =======================================================
-     SYNC CALENDAR WITH CHECK-IN
-  ======================================================= */
-
   useEffect(() => {
     if (!checkIn) return;
 
@@ -280,10 +260,6 @@ function MiniCalendar({
     );
   }, [checkIn]);
 
-  /* =======================================================
-     CALENDAR DAYS
-  ======================================================= */
-
   const calendarDays = useMemo(() => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
@@ -291,8 +267,6 @@ function MiniCalendar({
     const firstDay = new Date(year, month, 1);
     const startingWeekday = firstDay.getDay();
 
-    // Always render a complete 6-row / 42-cell calendar,
-    // including the trailing days from the next month.
     const days: Date[] = [];
 
     for (let index = 0; index < 42; index++) {
@@ -303,18 +277,10 @@ function MiniCalendar({
     return days;
   }, [currentMonth]);
 
-  /* =======================================================
-     MONTH LABEL
-  ======================================================= */
-
   const monthLabel = currentMonth.toLocaleDateString("en-US", {
     month: "long",
     year: "numeric",
   });
-
-  /* =======================================================
-     NIGHT COUNT
-  ======================================================= */
 
   const numberOfNights = useMemo(() => {
     if (!checkIn || !checkOut) return 0;
@@ -328,10 +294,6 @@ function MiniCalendar({
 
     return Math.ceil(difference / (1000 * 60 * 60 * 24));
   }, [checkIn, checkOut]);
-
-  /* =======================================================
-     DATE HELPERS
-  ======================================================= */
 
   const isUnavailable = (date: Date) => {
     return unavailableDates.has(dateKey(date));
@@ -361,10 +323,6 @@ function MiniCalendar({
     return date > selectedCheckIn && date < selectedCheckOut;
   };
 
-  /* =======================================================
-     DATE CLICK
-  ======================================================= */
-
   const handleDateClick = (date: Date) => {
     if (isPast(date)) return;
 
@@ -372,9 +330,6 @@ function MiniCalendar({
 
     const value = dateKey(date);
 
-    /*
-     * No check-in yet.
-     */
     if (!checkIn) {
       onCheckInChange(value);
       onCheckOutChange("");
@@ -382,10 +337,6 @@ function MiniCalendar({
       return;
     }
 
-    /*
-     * Both dates already exist.
-     * Start a new selection.
-     */
     if (checkIn && checkOut) {
       onCheckInChange(value);
       onCheckOutChange("");
@@ -393,10 +344,6 @@ function MiniCalendar({
       return;
     }
 
-    /*
-     * Clicked same/before check-in.
-     * Make this the new check-in.
-     */
     if (value <= checkIn) {
       onCheckInChange(value);
       onCheckOutChange("");
@@ -404,10 +351,6 @@ function MiniCalendar({
       return;
     }
 
-    /*
-     * Validate every night between
-     * check-in and check-out.
-     */
     const range = getDaysBetweenInclusive(
       new Date(`${checkIn}T00:00:00`),
       date,
@@ -424,10 +367,6 @@ function MiniCalendar({
 
     onCheckOutChange(value);
   };
-
-  /* =======================================================
-     MONTH NAVIGATION
-  ======================================================= */
 
   const previousMonth = () => {
     const previous = new Date(currentMonth);
@@ -456,10 +395,6 @@ function MiniCalendar({
     );
   };
 
-  /* =======================================================
-     FORMAT SELECTED DATE
-  ======================================================= */
-
   const formatSelectedDate = (value: string) => {
     if (!value) return null;
 
@@ -482,17 +417,11 @@ function MiniCalendar({
   const formattedCheckIn = formatSelectedDate(checkIn);
   const formattedCheckOut = formatSelectedDate(checkOut);
 
-  /* =======================================================
-     RENDER
-  ======================================================= */
-
   return (
     <div className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-white shadow-[0_12px_40px_rgba(10,37,64,0.08)]">
       {/* TOP ACCENT */}
 
       <div className="h-1.5 bg-gradient-to-r from-[#ef7048] via-[#f58c65] to-[#0a2540]" />
-
-      {/* HEADER */}
 
       <div className="px-5 pb-4 pt-5 sm:px-6">
         <div className="flex items-center justify-between">
@@ -511,8 +440,6 @@ function MiniCalendar({
               </h3>
             </div>
           </div>
-
-          {/* MONTH NAVIGATION */}
 
           <div className="flex items-center gap-1.5">
             <button
@@ -554,12 +481,8 @@ function MiniCalendar({
           </div>
         </div>
 
-        {/* SELECTED DATE SUMMARY */}
-
         <div className="mt-4 rounded-2xl bg-[#f7fafb] p-1.5">
           <div className="grid grid-cols-2 gap-1.5">
-            {/* CHECK IN */}
-
             <div
               className={`
                 relative overflow-hidden rounded-xl px-3 py-2.5
@@ -604,8 +527,6 @@ function MiniCalendar({
                 </div>
               </div>
             </div>
-
-            {/* CHECK OUT */}
 
             <div
               className={`
@@ -667,11 +588,7 @@ function MiniCalendar({
         </div>
       )}
 
-      {/* CALENDAR */}
-
       <div className="px-5 pb-5 sm:px-6">
-        {/* WEEKDAYS */}
-
         <div className="mb-2 grid grid-cols-7">
           {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => (
             <div
@@ -691,7 +608,6 @@ function MiniCalendar({
           ))}
         </div>
 
-        {/* DATES */}
         <div className="overflow-hidden rounded-b-xl border-x border-b border-slate-200">
           <div className="grid grid-cols-7">
             {calendarDays.map((date) => {
@@ -756,7 +672,6 @@ function MiniCalendar({
                       }
                     `}
                   >
-                    {/* DATE NUMBER */}
                     <span
                       className={`
                         flex h-6 w-6 items-center justify-center rounded-full
@@ -798,7 +713,6 @@ function MiniCalendar({
                       </div>
                     )}
 
-                    {/* TODAY */}
                     {todayDate && !isCheckIn && !isCheckOut && (
                       <span className="absolute right-1 top-1 text-[5px] font-bold text-blue-600">
                         TODAY
@@ -812,11 +726,7 @@ function MiniCalendar({
         </div>
       </div>
 
-      {/* FOOTER INFO */}
-
       <div className="border-t border-slate-100 bg-[#fbfcfd] px-5 py-4 sm:px-6">
-        {/* STEP 1 */}
-
         {!checkIn && !checkOut && (
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#fff1ec]">
@@ -834,8 +744,6 @@ function MiniCalendar({
             </div>
           </div>
         )}
-
-        {/* STEP 2 */}
 
         {checkIn && !checkOut && (
           <div className="flex items-center gap-3">
@@ -858,8 +766,6 @@ function MiniCalendar({
             </span>
           </div>
         )}
-
-        {/* COMPLETED */}
 
         {checkIn && checkOut && (
           <div className="flex items-center justify-between gap-3">
@@ -909,8 +815,6 @@ function MiniCalendar({
           </div>
         )}
 
-        {/* LEGEND */}
-
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-100 pt-3">
           <div className="flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -934,10 +838,6 @@ function MiniCalendar({
     </div>
   );
 }
-
-/* =========================================================
-   TIME OPTIONS
-========================================================= */
 
 const TIME_OPTIONS = [
   "12:00 AM",
@@ -965,10 +865,6 @@ const TIME_OPTIONS = [
   "10:00 PM",
   "11:00 PM",
 ];
-
-/* =========================================================
-   MINICAL RESERVATION MODAL
-========================================================= */
 
 interface MinicalReservationModalProps {
   open: boolean;
@@ -1024,10 +920,6 @@ function MinicalReservationModal({
 
   const TAX_RATE = 0;
 
-  /* =======================================================
-     ROOM TYPES
-  ======================================================= */
-
   const roomTypes = useMemo(() => {
     return Array.from(
       new Map(
@@ -1036,29 +928,17 @@ function MinicalReservationModal({
     );
   }, [rooms]);
 
-  /* =======================================================
-     INITIAL ROOM TYPE
-  ======================================================= */
-
   useEffect(() => {
     if (!selectedRoomType && roomTypes.length > 0) {
       setSelectedRoomType(roomTypes[0]);
     }
   }, [roomTypes, selectedRoomType]);
 
-  /* =======================================================
-     ROOM FILTER
-  ======================================================= */
-
   const filteredRooms = useMemo(() => {
     return rooms.filter(
       (room) => (room.type || room.name) === selectedRoomType,
     );
   }, [rooms, selectedRoomType]);
-
-  /* =======================================================
-     AUTO SELECT FIRST ROOM
-  ======================================================= */
 
   useEffect(() => {
     if (!selectedRoomType) return;
@@ -1074,17 +954,9 @@ function MinicalReservationModal({
     }
   }, [selectedRoomType, rooms]);
 
-  /* =======================================================
-     SELECTED ROOM
-  ======================================================= */
-
   const selectedRoomData = useMemo(() => {
     return rooms.find((room) => room.id === selectedRoom);
   }, [rooms, selectedRoom]);
-
-  /* =======================================================
-     NUMBER OF NIGHTS
-  ======================================================= */
 
   const numberOfDays = useMemo(() => {
     if (!checkIn || !checkOut) return 0;
@@ -1100,10 +972,6 @@ function MinicalReservationModal({
     return Math.ceil(difference / (1000 * 60 * 60 * 24));
   }, [checkIn, checkOut]);
 
-  /* =======================================================
-     RATE CALCULATIONS
-  ======================================================= */
-
   const nightlyRate = Number(selectedRoomData?.price || 0);
 
   const totalBeforeTax = nightlyRate * numberOfDays;
@@ -1113,10 +981,6 @@ function MinicalReservationModal({
   const totalWithTax = totalBeforeTax + taxAmount;
 
   const averageRate = numberOfDays > 0 ? totalBeforeTax / numberOfDays : 0;
-
-  /* =======================================================
-     ROOM AVAILABILITY
-  ======================================================= */
 
   const selectedRoomUnavailable = useMemo(() => {
     if (!selectedRoom || !checkIn || !checkOut) {
@@ -1161,17 +1025,9 @@ function MinicalReservationModal({
     });
   }, [selectedRoom, checkIn, checkOut, bookings]);
 
-  /* =======================================================
-     CLOSE
-  ======================================================= */
-
   if (!open) {
     return null;
   }
-
-  /* =======================================================
-     CREATE RESERVATION
-  ======================================================= */
 
   const handleCreateReservation = async () => {
     if (saving) return;
@@ -1309,15 +1165,9 @@ function MinicalReservationModal({
     }
   };
 
-  /* =======================================================
-     RENDER
-  ======================================================= */
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm sm:p-6">
       <div className="flex max-h-[95vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        {/* HEADER */}
-
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-5 sm:px-7">
           <div>
             <h2 className="text-lg font-semibold text-slate-700">
@@ -1339,11 +1189,7 @@ function MinicalReservationModal({
           </button>
         </div>
 
-        {/* CONTENT */}
-
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {/* BOOKING DETAIL */}
-
           <div className="border-b border-slate-200 px-5 py-6 sm:px-8">
             <h3 className="mb-5 text-xs font-semibold uppercase tracking-wider text-slate-500">
               Booking Detail
@@ -1393,8 +1239,6 @@ function MinicalReservationModal({
               </div>
             </div>
           </div>
-
-          {/* GUEST */}
 
           <div className="border-b border-slate-200 px-5 py-6 sm:px-8">
             <h3 className="mb-5 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -1454,16 +1298,12 @@ function MinicalReservationModal({
             </div>
           </div>
 
-          {/* STAY DETAILS */}
-
           <div className="border-b border-slate-200 px-5 py-6 sm:px-8">
             <h3 className="mb-5 text-xs font-semibold uppercase tracking-wider text-slate-500">
               Stay Details
             </h3>
 
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-              {/* CHECK IN */}
-
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Check-in Date
@@ -1491,8 +1331,6 @@ function MinicalReservationModal({
                   </select>
                 </div>
               </div>
-
-              {/* CHECK OUT */}
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
@@ -1524,8 +1362,6 @@ function MinicalReservationModal({
               </div>
             </div>
 
-            {/* ROOM */}
-
             <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1fr_130px]">
               {/* ROOM TYPE */}
 
@@ -1550,8 +1386,6 @@ function MinicalReservationModal({
                   ))}
                 </select>
               </div>
-
-              {/* ROOM */}
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
@@ -1585,8 +1419,6 @@ function MinicalReservationModal({
                 )}
               </div>
 
-              {/* DAYS */}
-
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   No of Days
@@ -1600,8 +1432,6 @@ function MinicalReservationModal({
               </div>
             </div>
           </div>
-
-          {/* CHARGES */}
 
           <div className="border-b border-slate-200 px-5 py-6 sm:px-8">
             <h3 className="mb-5 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -1643,8 +1473,6 @@ function MinicalReservationModal({
                 </div>
               </div>
 
-              {/* RATE */}
-
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Rate
@@ -1662,8 +1490,6 @@ function MinicalReservationModal({
                   />
                 </div>
               </div>
-
-              {/* TOTAL */}
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
@@ -1697,8 +1523,6 @@ function MinicalReservationModal({
                 />
               </div>
 
-              {/* TOTAL PRE TAX */}
-
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Total Pre Tax
@@ -1716,8 +1540,6 @@ function MinicalReservationModal({
               </div>
             </div>
           </div>
-
-          {/* NOTES */}
 
           <div className="px-5 py-6 sm:px-8">
             <label className="mb-1.5 block text-xs font-medium text-slate-600">
@@ -1765,10 +1587,6 @@ function MinicalReservationModal({
   );
 }
 
-/* =========================================================
-   LANDING PAGE
-========================================================= */
-
 export default function Landing() {
   const [checkIn, setCheckIn] = useState("");
 
@@ -1789,10 +1607,6 @@ export default function Landing() {
   const [loading, setLoading] = useState(true);
 
   const [bookingLoading, setBookingLoading] = useState(true);
-
-  /* =======================================================
-     LOAD DATA
-  ======================================================= */
 
   useEffect(() => {
     const loadLandingData = async () => {
@@ -1851,10 +1665,6 @@ export default function Landing() {
     loadLandingData();
   }, []);
 
-  /* =======================================================
-     UNAVAILABLE DATES
-  ======================================================= */
-
   const unavailableDates = useMemo(() => {
     const dates = new Set<string>();
 
@@ -1888,10 +1698,6 @@ export default function Landing() {
 
     return dates;
   }, [bookings]);
-
-  /* =======================================================
-     SEARCH
-  ======================================================= */
 
   const handleSearch = () => {
     if (!checkIn) {
@@ -1940,24 +1746,12 @@ export default function Landing() {
     window.location.href = `/rooms?${params.toString()}`;
   };
 
-  /* =======================================================
-     OPEN RESERVATION
-  ======================================================= */
-
   const openReservation = () => {
     setReservationOpen(true);
   };
 
-  /* =======================================================
-     RENDER
-  ======================================================= */
-
   return (
     <div className="overflow-hidden bg-background">
-      {/* =====================================================
-          HERO
-      ===================================================== */}
-
       <section className="relative min-h-[calc(100vh-72px)] overflow-hidden">
         {/* BACKGROUND */}
 
@@ -2130,10 +1924,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* =====================================================
-          STATS
-      ===================================================== */}
-
       <section className="relative z-10 bg-[#0a2540] text-white">
         <div className="mx-auto grid max-w-[1600px] grid-cols-2 divide-white/10 md:grid-cols-4 md:divide-x">
           {[
@@ -2171,10 +1961,6 @@ export default function Landing() {
           ))}
         </div>
       </section>
-
-      {/* =====================================================
-          ROOMS
-      ===================================================== */}
 
       <section className="mx-auto max-w-[1600px] px-5 py-20 sm:px-8 lg:px-12 xl:px-16">
         <div className="mb-10 flex items-end justify-between">
@@ -2289,10 +2075,6 @@ export default function Landing() {
         )}
       </section>
 
-      {/* =====================================================
-          ACTIVITIES
-      ===================================================== */}
-
       <section className="bg-[#f3f8fa]">
         <div className="mx-auto max-w-[1600px] px-5 py-20 sm:px-8 lg:px-12 xl:px-16">
           <div className="mb-10 flex items-end justify-between">
@@ -2365,10 +2147,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* =====================================================
-          WHY US
-      ===================================================== */}
-
       <section className="mx-auto max-w-[1600px] px-5 py-20 sm:px-8 lg:px-12 xl:px-16">
         <div className="mb-14 text-center">
           <p className="mb-2 text-sm font-medium uppercase tracking-wider text-[#ef7048]">
@@ -2429,10 +2207,6 @@ export default function Landing() {
           ))}
         </div>
       </section>
-
-      {/* =====================================================
-          REVIEWS
-      ===================================================== */}
 
       <section className="bg-[#0a2540] text-white">
         <div className="mx-auto max-w-[1600px] px-5 py-20 sm:px-8 lg:px-12 xl:px-16">
@@ -2513,10 +2287,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* =====================================================
-          AI
-      ===================================================== */}
-
       <section className="mx-auto max-w-[1600px] px-5 py-20 sm:px-8 lg:px-12 xl:px-16">
         <div className="flex flex-col items-center gap-10 rounded-[32px] border border-slate-200 bg-gradient-to-br from-[#edf5f7] to-white p-8 md:flex-row md:p-12">
           <div className="flex-1">
@@ -2571,10 +2341,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* =====================================================
-          CONTACT
-      ===================================================== */}
-
       <section className="bg-slate-100">
         <div className="mx-auto max-w-[1600px] px-5 py-16 text-center sm:px-8 lg:px-12 xl:px-16">
           <h2
@@ -2616,10 +2382,6 @@ export default function Landing() {
           </div>
         </div>
       </section>
-
-      {/* =====================================================
-          RESERVATION MODAL
-      ===================================================== */}
 
       <MinicalReservationModal
         open={reservationOpen}

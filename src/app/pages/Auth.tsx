@@ -381,7 +381,6 @@ export default function Auth() {
                   Sign in using your verified email account.
                 </p>
               </div>
-              o
               {loginError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
