@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
-import { Star, Users, Maximize2, Filter, X, Search } from "lucide-react";
+import { Users, Filter, X, Search } from "lucide-react";
 
-import { db } from "../components/firebase";
+import { db, customerDb } from "../components/firebase";
 import { collection, getDocs } from "firebase/firestore";
 
 type RoomType = {
@@ -15,26 +15,188 @@ type RoomType = {
   image: string;
 };
 
+type Booking = {
+  id: string;
+  status?: string;
+  checkIn?: any;
+  checkOut?: any;
+  roomTypeId?: string;
+  roomId?: string;
+  roomName?: string;
+  roomType?: string | { id?: string; name?: string };
+  quantity?: number;
+  rooms?: number;
+  numberOfRooms?: number;
+};
+
+function toDate(value: any): Date | null {
+  if (!value) return null;
+
+  if (typeof value?.toDate === "function") {
+    const date = value.toDate();
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (typeof value === "object" && value.seconds) {
+    const date = new Date(value.seconds * 1000);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  return null;
+}
+
+function dateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function bookingOverlaps(
+  booking: Booking,
+  requestedCheckIn: Date,
+  requestedCheckOut: Date,
+): boolean {
+  const checkIn = toDate(booking.checkIn);
+  const checkOut = toDate(booking.checkOut);
+
+  if (!checkIn || !checkOut) return false;
+
+  return (
+    dateOnly(checkIn) < dateOnly(requestedCheckOut) &&
+    dateOnly(checkOut) > dateOnly(requestedCheckIn)
+  );
+}
+
+function isInactiveBooking(status?: string): boolean {
+  const normalized = (status || "").toLowerCase().trim();
+  return ["cancelled", "canceled", "rejected", "declined"].includes(normalized);
+}
+
+function getBookingRoomTypeValues(booking: Booking): string[] {
+  const values: string[] = [];
+
+  if (booking.roomTypeId) values.push(String(booking.roomTypeId));
+  if (booking.roomId) values.push(String(booking.roomId));
+  if (booking.roomName) values.push(String(booking.roomName));
+
+  if (typeof booking.roomType === "string") {
+    values.push(booking.roomType);
+  } else if (booking.roomType && typeof booking.roomType === "object") {
+    if (booking.roomType.id) values.push(String(booking.roomType.id));
+    if (booking.roomType.name) values.push(String(booking.roomType.name));
+  }
+
+  return values.map((value) => value.trim().toLowerCase()).filter(Boolean);
+}
+
+function getBookingQuantity(booking: Booking): number {
+  const quantity = Number(
+    booking.quantity ?? booking.numberOfRooms ?? booking.rooms ?? 1,
+  );
+
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+}
+
 export default function Rooms() {
   const [params] = useSearchParams();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
-  const [maxPrice, setMaxPrice] = useState(15000);
+  const [maxPrice, setMaxPrice] = useState(50000);
   const [minCapacity, setMinCapacity] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
   const [rooms, setRooms] = useState<RoomType[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+
   const guestsParam = params.get("guests")
-    ? parseInt(params.get("guests")!)
+    ? parseInt(params.get("guests")!, 10)
     : 1;
+
+  const checkInParam = params.get("checkIn");
+  const checkOutParam = params.get("checkOut");
+  const requestedCheckIn = checkInParam ? toDate(checkInParam) : null;
+  const requestedCheckOut = checkOutParam ? toDate(checkOutParam) : null;
+  const hasValidDateRange =
+    !!requestedCheckIn &&
+    !!requestedCheckOut &&
+    dateOnly(requestedCheckIn) < dateOnly(requestedCheckOut);
+
+  const availableIdsParam = params.get("availableRoomTypes");
+  const hasAvailabilityParam = availableIdsParam !== null;
+  const availableIds = useMemo(
+    () =>
+      new Set(
+        (availableIdsParam || "")
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    [availableIdsParam],
+  );
+
+  const roomsWithAvailability = useMemo(() => {
+    if (!hasValidDateRange || !requestedCheckIn || !requestedCheckOut) {
+      if (hasAvailabilityParam) {
+        return rooms.filter((room) => availableIds.has(room.id));
+      }
+      return rooms;
+    }
+
+    return rooms.filter((room) => {
+      const roomName = room.name.trim().toLowerCase();
+
+      const matchingBookings = bookings.filter((booking) => {
+        if (isInactiveBooking(booking.status)) return false;
+        if (!bookingOverlaps(booking, requestedCheckIn, requestedCheckOut)) {
+          return false;
+        }
+
+        const identifiers = getBookingRoomTypeValues(booking);
+        return (
+          identifiers.includes(room.id.toLowerCase()) ||
+          identifiers.includes(roomName)
+        );
+      });
+
+      const bookedCount = matchingBookings.reduce(
+        (total, booking) => total + getBookingQuantity(booking),
+        0,
+      );
+
+      const remaining = Math.max(0, room.count - bookedCount);
+
+      // If Landing passed availability IDs, both checks must agree.
+      return (
+        remaining > 0 && (!hasAvailabilityParam || availableIds.has(room.id))
+      );
+    });
+  }, [
+    rooms,
+    bookings,
+    hasValidDateRange,
+    requestedCheckIn,
+    requestedCheckOut,
+    hasAvailabilityParam,
+    availableIds,
+  ]);
+
   const searchText = search.toLowerCase();
   const categories = [
     "All",
-    ...Array.from(new Set(rooms.map((room) => room.name))),
+    ...Array.from(new Set(roomsWithAvailability.map((room) => room.name))),
   ];
-  const filtered = rooms.filter((room) => {
-    const searchText = search.toLowerCase();
 
+  const filtered = roomsWithAvailability.filter((room) => {
     const matchSearch =
       room.name.toLowerCase().includes(searchText) ||
       room.amenities.some((amenity) =>
@@ -42,10 +204,9 @@ export default function Rooms() {
       );
 
     const matchCategory = category === "All" || room.name === category;
-
     const matchPrice = room.basePrice <= maxPrice;
-
-    const matchCapacity = room.maxGuests >= Math.max(minCapacity, guestsParam);
+    const matchCapacity =
+      room.maxGuests >= Math.max(minCapacity, guestsParam || 1);
 
     return matchSearch && matchCategory && matchPrice && matchCapacity;
   });
@@ -55,23 +216,54 @@ export default function Rooms() {
       try {
         setLoading(true);
 
-        const snapshot = await getDocs(collection(db, "roomTypes"));
+        const [roomTypesResult, bookingsResult] = await Promise.allSettled([
+          getDocs(collection(db, "roomTypes")),
+          getDocs(collection(customerDb, "Bookings")),
+        ]);
 
-        const roomData: RoomType[] = snapshot.docs.map((doc) => {
+        if (roomTypesResult.status === "rejected") {
+          console.error(
+            "Failed to load admin roomTypes:",
+            roomTypesResult.reason,
+          );
+          throw roomTypesResult.reason;
+        }
+
+        const roomData: RoomType[] = roomTypesResult.value.docs.map((doc) => {
           const data = doc.data();
 
           return {
             id: doc.id,
             name: data.name || "",
-            count: Number(data.count || 0),
+            count: Number(data.count ?? data.quantity ?? data.totalRooms ?? 0),
             amenities: Array.isArray(data.amenities) ? data.amenities : [],
-            maxGuests: Number(data.maxGuests || 1),
-            basePrice: Number(data.basePrice || 0),
+            maxGuests: Number(data.maxGuests ?? data.capacity ?? 1),
+            basePrice: Number(data.basePrice ?? data.price ?? 0),
             image: data.image || "",
           };
         });
 
         setRooms(roomData);
+
+        if (bookingsResult.status === "fulfilled") {
+          const bookingData: Booking[] = bookingsResult.value.docs.map(
+            (doc) => ({
+              id: doc.id,
+              ...doc.data(),
+            }),
+          );
+          setBookings(bookingData);
+        } else {
+          console.error(
+            "Failed to load customer Bookings:",
+            bookingsResult.reason,
+          );
+
+          // Without bookings, date-specific availability cannot be verified.
+          if (hasValidDateRange) {
+            setBookings([]);
+          }
+        }
       } catch (error) {
         console.error("Error loading rooms:", error);
       } finally {
@@ -80,7 +272,7 @@ export default function Rooms() {
     };
 
     loadRooms();
-  }, []);
+  }, [hasValidDateRange]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -99,6 +291,12 @@ export default function Rooms() {
           {filtered.length} room{filtered.length !== 1 ? "s" : ""} available ·
           Busuanga, Palawan
         </p>
+        {hasValidDateRange && (
+          <p className="text-muted-foreground text-xs mt-1">
+            Showing room types available for {dateOnly(requestedCheckIn!)} to{" "}
+            {dateOnly(requestedCheckOut!)}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8">
@@ -216,9 +414,15 @@ export default function Rooms() {
             <div className="text-center py-20 text-muted-foreground">
               <div className="text-4xl mb-3">🏖️</div>
               <p className="font-medium text-foreground">
-                No rooms match your filters
+                {hasValidDateRange
+                  ? "No rooms available for these dates"
+                  : "No rooms match your filters"}
               </p>
-              <p className="text-sm mt-1">Try adjusting your search criteria</p>
+              <p className="text-sm mt-1">
+                {hasValidDateRange
+                  ? "Try different check-in or check-out dates"
+                  : "Try adjusting your search criteria"}
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

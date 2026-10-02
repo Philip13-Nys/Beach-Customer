@@ -42,12 +42,21 @@ type Booking = {
   roomImage?: string;
   checkIn?: string;
   checkOut?: string;
+  amountPaid?: number;
+  downPaymentAmount?: number;
+  remainingBalance?: number;
   addOns?: { name: string; price: number }[];
   [key: string]: any;
 };
 
 export default function Payment() {
-  const { modifyBooking, pendingPayment, setPendingPayment, user } = useApp();
+  const {
+    modifyBooking,
+    pendingPayment,
+    setPendingPayment,
+    user,
+    createNotification,
+  } = useApp();
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -174,9 +183,10 @@ export default function Payment() {
   const validPercent =
     Number.isFinite(percent) && percent > 0 && percent <= 100;
 
-  // Use the total already saved on the booking.
-  // This avoids adding room charges/add-ons/fees a second time.
   const total = Number(target?.totalPrice ?? 0);
+  const amountPaid = Number(target?.amountPaid ?? 0);
+  const remainingBalance = Math.max(0, total - amountPaid);
+
   const reservationFee = Number(target?.reservationFee ?? 0);
   const reservationFeePercent = Number(target?.reservationFeePercent ?? 0);
   const subtotal = Number(target?.subtotal ?? total - reservationFee);
@@ -185,8 +195,6 @@ export default function Payment() {
     validPercent && Number.isFinite(total) && total > 0
       ? Math.ceil((total * percent) / 100)
       : 0;
-
-  const remainingBalance = Math.max(0, total - downPayment);
 
   const formatPeso = (amount: number) =>
     `₱${amount.toLocaleString("en-PH", {
@@ -285,36 +293,52 @@ export default function Payment() {
       batch.set(paymentRef, {
         bookingId: target.id,
         bookingRef: target.bookingRef ?? "",
+
+        // Fields used by the receptionist page
+        guest: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
+        room: target.roomName ?? "",
+        method: "gcash",
+        type: downPayment >= remainingBalance ? "balance" : "partial",
+        amount: downPayment,
+
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+
+        status: "pending",
+        receiptNo: `GC-${Date.now()}`,
+        referenceNumber: cleanReference,
+        verificationStatus: "pending",
+
+        // Additional customer/payment information
         customerId: user.id,
         customerName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
         customerEmail: user.email ?? "",
-        amount: downPayment,
         totalPrice: total,
         remainingBalance,
         paymentMethod: "GCash",
         gcashNumber: settings.gcashNumber,
-        referenceNumber: cleanReference,
-        status: "pending_verification",
         createdAt: serverTimestamp(),
       });
 
       batch.update(bookingRef, {
         paymentStatus: "pending_verification",
         paymentMethod: "GCash",
-        downPaymentAmount: downPayment,
-        remainingBalance,
         paymentReference: cleanReference,
         paymentRecordId: paymentRef.id,
       });
 
+      // Save payment and booking status together.
       await batch.commit();
 
       // Keep the app context in sync with Firestore.
-      modifyBooking(target.id, {
+      await modifyBooking(target.id, {
         paymentStatus: "pending_verification",
         paymentMethod: "GCash",
         downPaymentAmount: downPayment,
-        remainingBalance,
+        remainingBalance: Math.max(0, total - downPayment),
         paymentReference: cleanReference,
         paymentRecordId: paymentRef.id,
       });
@@ -326,7 +350,7 @@ export default function Payment() {
               paymentStatus: "pending_verification",
               paymentMethod: "GCash",
               downPaymentAmount: downPayment,
-              remainingBalance,
+              remainingBalance: Math.max(0, total - downPayment),
               paymentReference: cleanReference,
               paymentRecordId: paymentRef.id,
             }
@@ -335,6 +359,28 @@ export default function Payment() {
 
       setPendingPayment(null);
       setPaymentRecordId(paymentRef.id);
+
+      // Notify the customer after the Firestore payment submission succeeds.
+      // A notification error must not make the successful payment look failed.
+      try {
+        await createNotification({
+          eventId: `payment-submitted-${paymentRef.id}`,
+          type: "payment",
+          title: "Payment submitted",
+          message: `Your GCash down payment of ${formatPeso(
+            downPayment,
+          )} for booking ${
+            target.bookingRef ?? target.id
+          } has been submitted. Reference: ${cleanReference}. Status: Pending verification.`,
+          targetPath: "/booking-history",
+        });
+      } catch (notificationError) {
+        console.error(
+          "Payment was saved, but the notification could not be created:",
+          notificationError,
+        );
+      }
+
       setSuccess(true);
     } catch (err) {
       console.error("Payment submission error:", err);
@@ -440,7 +486,7 @@ export default function Payment() {
 
             <div className="flex justify-between text-sm">
               <span>Remaining Balance</span>
-              <span>{formatPeso(remainingBalance)}</span>
+              <span>{formatPeso(Math.max(0, total - downPayment))}</span>
             </div>
           </div>
 
@@ -764,7 +810,7 @@ export default function Payment() {
                   <span className="text-muted-foreground">
                     Remaining Balance
                   </span>
-                  <span>{formatPeso(remainingBalance)}</span>
+                  <span>{formatPeso(Math.max(0, total - downPayment))}</span>
                 </div>
               </div>
 

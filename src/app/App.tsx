@@ -12,7 +12,6 @@ import BookingHistory from "./pages/BookingHistory";
 import Payment from "./pages/Payment";
 import Services from "./pages/Services";
 import Inquiries from "./pages/Inquiries";
-import Notifications from "./pages/Notifications";
 import Reviews from "./pages/Reviews";
 import AIAssistant from "./pages/AIAssistant";
 
@@ -40,7 +39,6 @@ export default function App() {
                   <Route path="/payment" element={<Payment />} />
                   <Route path="/services" element={<Services />} />
                   <Route path="/inquiries" element={<Inquiries />} />
-                  <Route path="/notifications" element={<Notifications />} />
                   <Route path="/reviews" element={<Reviews />} />
                   <Route path="/ai-assistant" element={<AIAssistant />} />
                   <Route path="/profile" element={<Profile />} />

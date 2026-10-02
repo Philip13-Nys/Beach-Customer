@@ -19,17 +19,19 @@ export default function Auth() {
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+
   const [showLoginPwd, setShowLoginPwd] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
 
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
     email: "",
     phone: "",
-    nationality: "",
     password: "",
     confirmPassword: "",
+    termsAccepted: false,
   });
 
   useEffect(() => {
@@ -37,6 +39,10 @@ export default function Auth() {
       navigate("/");
     }
   }, [user, navigate]);
+
+  // =========================================================
+  // LOGIN
+  // =========================================================
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,6 +85,10 @@ export default function Auth() {
     }
   };
 
+  // =========================================================
+  // GOOGLE LOGIN
+  // =========================================================
+
   const handleGoogleLogin = async () => {
     setLoginError("");
     setRegisterError("");
@@ -114,12 +124,16 @@ export default function Auth() {
     }
   };
 
+  // =========================================================
+  // REGISTER
+  // =========================================================
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
     setRegisterError("");
 
-    // Validate required fields
+    // Required fields
     if (
       !form.firstName.trim() ||
       !form.lastName.trim() ||
@@ -132,13 +146,21 @@ export default function Auth() {
       return;
     }
 
+    // Terms and Conditions
+    if (!form.termsAccepted) {
+      setRegisterError(
+        "Please agree to the Terms of Service and Privacy Policy to create an account.",
+      );
+      return;
+    }
+
     // Password length
     if (form.password.length < 8) {
       setRegisterError("Password must be at least 8 characters.");
       return;
     }
 
-    // Confirm password
+    // Password confirmation
     if (form.password !== form.confirmPassword) {
       setRegisterError("Passwords do not match.");
       return;
@@ -150,7 +172,6 @@ export default function Auth() {
         lastName: form.lastName.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
-        nationality: form.nationality.trim(),
         password: form.password,
       });
 
@@ -161,14 +182,15 @@ export default function Auth() {
           "Account created successfully! Please check your email and click the verification link before signing in.",
         );
 
+        // Reset registration form
         setForm({
           firstName: "",
           lastName: "",
           email: "",
           phone: "",
-          nationality: "",
           password: "",
           confirmPassword: "",
+          termsAccepted: false,
         });
 
         setTab("login");
@@ -199,6 +221,10 @@ export default function Auth() {
     }
   };
 
+  // =========================================================
+  // GOOGLE REGISTER
+  // =========================================================
+
   const handleGoogleRegister = async () => {
     setRegisterError("");
 
@@ -212,7 +238,6 @@ export default function Auth() {
         firstName: "",
         lastName: "",
         phone: form.phone.trim(),
-        nationality: form.nationality.trim(),
       });
 
       if (success) {
@@ -242,24 +267,46 @@ export default function Auth() {
       );
     }
   };
+
+  // =========================================================
+  // INPUT STYLE
+  // =========================================================
+
   const inputClass =
     "w-full px-4 py-2.5 rounded-xl border border-border bg-white text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground/60";
 
   return (
     <div className="min-h-screen flex">
-      {/* Left visual */}
+      {/* =====================================================
+          LEFT VISUAL
+      ====================================================== */}
+
       <div className="hidden lg:flex flex-col flex-1 relative overflow-hidden">
-        <img
-          src="https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=900&h=1200&fit=crop&auto=format"
-          alt="Diving at Sabang Resorts"
+        {/* BACKGROUND VIDEO */}
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
           className="absolute inset-0 w-full h-full object-cover"
-        />
+        >
+          <source
+            src="https://cdn.pixabay.com/video/2025/03/15/265145_large.mp4"
+            type="video/mp4"
+          />
+        </video>
+
+        {/* OVERLAY */}
         <div className="absolute inset-0 bg-gradient-to-b from-primary/80 via-primary/50 to-primary/70" />
+
         <div className="relative z-10 flex flex-col justify-between h-full p-10">
+          {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
               <Anchor className="w-5 h-5 text-white" />
             </div>
+
             <span
               className="text-white font-semibold"
               style={{ fontFamily: "var(--font-display)" }}
@@ -267,6 +314,8 @@ export default function Auth() {
               Sabang Diving Resort
             </span>
           </Link>
+
+          {/* Content */}
           <div>
             <h2
               className="text-white mb-3"
@@ -279,10 +328,12 @@ export default function Auth() {
             >
               Your island adventure starts here.
             </h2>
+
             <p className="text-white/70 leading-relaxed text-sm">
               Create your account to access exclusive booking, manage
               reservations, and unlock member benefits at Sabang Resorts.
             </p>
+
             <div className="flex flex-col gap-2 mt-6">
               {[
                 "Access personalized room recommendations",
@@ -299,20 +350,26 @@ export default function Auth() {
               ))}
             </div>
           </div>
+
+          {/* Copyright */}
           <p className="text-white/40 text-xs">
             © 2026 Sabang Beach & Diving Resorts
           </p>
         </div>
       </div>
 
-      {/* Right form */}
+      {/* =====================================================
+          RIGHT FORM
+      ====================================================== */}
+
       <div className="flex-1 lg:max-w-lg flex items-center justify-center p-6 bg-background">
         <div className="w-full max-w-md">
-          {/* Mobile logo */}
+          {/* Mobile Logo */}
           <div className="flex lg:hidden items-center justify-center gap-2 mb-8">
             <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
               <Anchor className="w-5 h-5 text-white" />
             </div>
+
             <span
               className="text-primary font-semibold"
               style={{ fontFamily: "var(--font-display)" }}
@@ -321,7 +378,10 @@ export default function Auth() {
             </span>
           </div>
 
-          {/* Tabs */}
+          {/* =================================================
+              TABS
+          ================================================= */}
+
           <div className="flex gap-1 bg-muted p-1 rounded-xl mb-8">
             {(["login", "register"] as const).map((t) => (
               <button
@@ -337,6 +397,10 @@ export default function Auth() {
               </button>
             ))}
           </div>
+
+          {/* =================================================
+              LOGIN
+          ================================================= */}
 
           {tab === "login" ? (
             <form onSubmit={handleLogin} className="space-y-4">
@@ -357,6 +421,7 @@ export default function Auth() {
                 </p>
               </div>
 
+              {/* Login Error */}
               {loginError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -396,19 +461,22 @@ export default function Auth() {
 
                   <button
                     type="button"
-                    onClick={() => setShowLoginPwd(!showLoginPwd)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    aria-label={
+                      showLoginPwd ? "Hide password" : "Show password"
+                    }
+                    onClick={() => setShowLoginPwd((previous) => !previous)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
                   >
                     {showLoginPwd ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
                       <Eye className="w-4 h-4" />
+                    ) : (
+                      <EyeOff className="w-4 h-4" />
                     )}
                   </button>
                 </div>
               </div>
 
-              {/* Login */}
+              {/* Login Button */}
               <button
                 type="submit"
                 className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
@@ -416,6 +484,7 @@ export default function Auth() {
                 Sign In
               </button>
 
+              {/* OR */}
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-border" />
@@ -455,6 +524,7 @@ export default function Auth() {
                 Continue with Google
               </button>
 
+              {/* Create Account Link */}
               <p className="text-center text-xs text-muted-foreground">
                 No account yet?{" "}
                 <button
@@ -470,7 +540,12 @@ export default function Auth() {
               </p>
             </form>
           ) : (
+            /* =================================================
+                REGISTER
+            ================================================= */
+
             <form onSubmit={handleRegister} className="space-y-3">
+              {/* Heading */}
               <div>
                 <h1
                   className="text-foreground mb-1"
@@ -488,6 +563,7 @@ export default function Auth() {
                 </p>
               </div>
 
+              {/* Register Error */}
               {registerError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -495,8 +571,12 @@ export default function Auth() {
                 </div>
               )}
 
-              {/* Name */}
+              {/* =================================================
+                  NAME
+              ================================================= */}
+
               <div className="grid grid-cols-2 gap-3">
+                {/* First Name */}
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1.5">
                     First name *
@@ -516,6 +596,7 @@ export default function Auth() {
                   />
                 </div>
 
+                {/* Last Name */}
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1.5">
                     Last name *
@@ -536,7 +617,10 @@ export default function Auth() {
                 </div>
               </div>
 
-              {/* Email */}
+              {/* =================================================
+                  EMAIL
+              ================================================= */}
+
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Email address *
@@ -556,48 +640,33 @@ export default function Auth() {
                 />
               </div>
 
-              {/* Phone & Nationality */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-foreground mb-1.5">
-                    Phone *
-                  </label>
+              {/* =================================================
+                  PHONE
+              ================================================= */}
 
-                  <input
-                    type="tel"
-                    placeholder="+63 9XX XXX XXXX"
-                    value={form.phone}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        phone: e.target.value,
-                      }))
-                    }
-                    className={inputClass}
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-medium text-foreground mb-1.5">
+                  Phone *
+                </label>
 
-                <div>
-                  <label className="block text-xs font-medium text-foreground mb-1.5">
-                    Nationality
-                  </label>
-
-                  <input
-                    type="text"
-                    placeholder="Filipino"
-                    value={form.nationality}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        nationality: e.target.value,
-                      }))
-                    }
-                    className={inputClass}
-                  />
-                </div>
+                <input
+                  type="tel"
+                  placeholder="+63 9XX XXX XXXX"
+                  value={form.phone}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      phone: e.target.value,
+                    }))
+                  }
+                  className={inputClass}
+                />
               </div>
 
-              {/* Password & Confirm Password */}
+              {/* =================================================
+                  PASSWORD
+              ================================================= */}
+
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Password *
@@ -619,36 +688,113 @@ export default function Auth() {
 
                   <button
                     type="button"
-                    onClick={() => setShowPwd(!showPwd)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    aria-label={showPwd ? "Hide password" : "Show password"}
+                    onClick={() => setShowPwd((previous) => !previous)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
                   >
                     {showPwd ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
                       <Eye className="w-4 h-4" />
+                    ) : (
+                      <EyeOff className="w-4 h-4" />
                     )}
                   </button>
                 </div>
               </div>
+
+              {/* =================================================
+                  CONFIRM PASSWORD
+              ================================================= */}
 
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Confirm password *
                 </label>
 
+                <div className="relative">
+                  <input
+                    type={showConfirmPwd ? "text" : "password"}
+                    placeholder="Repeat password"
+                    value={form.confirmPassword}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        confirmPassword: e.target.value,
+                      }))
+                    }
+                    className={inputClass + " pr-10"}
+                  />
+
+                  <button
+                    type="button"
+                    aria-label={
+                      showConfirmPwd ? "Hide password" : "Show password"
+                    }
+                    onClick={() => setShowConfirmPwd((previous) => !previous)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    {showConfirmPwd ? (
+                      <Eye className="w-4 h-4" />
+                    ) : (
+                      <EyeOff className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* =================================================
+                  TERMS & CONDITIONS CHECKBOX
+              ================================================= */}
+
+              <div className="flex items-start gap-2 pt-1">
                 <input
-                  type="password"
-                  placeholder="Repeat password"
-                  value={form.confirmPassword}
-                  onChange={(e) =>
+                  id="termsAccepted"
+                  type="checkbox"
+                  checked={form.termsAccepted}
+                  onChange={(e) => {
                     setForm((f) => ({
                       ...f,
-                      confirmPassword: e.target.value,
-                    }))
-                  }
-                  className={inputClass}
+                      termsAccepted: e.target.checked,
+                    }));
+
+                    // Clear the terms error once checked
+                    if (e.target.checked) {
+                      setRegisterError("");
+                    }
+                  }}
+                  className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
                 />
+
+                <label
+                  htmlFor="termsAccepted"
+                  className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
+                >
+                  I agree to the{" "}
+                  <a
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline hover:text-accent"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Terms of Service
+                  </a>{" "}
+                  and{" "}
+                  <a
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline hover:text-accent"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Privacy Policy
+                  </a>
+                  .
+                </label>
               </div>
+
+              {/* =================================================
+                  CREATE ACCOUNT
+              ================================================= */}
 
               <button
                 type="submit"
@@ -656,6 +802,10 @@ export default function Auth() {
               >
                 Create Account
               </button>
+
+              {/* =================================================
+                  OR
+              ================================================= */}
 
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center">
@@ -669,7 +819,10 @@ export default function Auth() {
                 </div>
               </div>
 
-              {/* Google */}
+              {/* =================================================
+                  GOOGLE REGISTER
+              ================================================= */}
+
               <button
                 type="button"
                 onClick={handleGoogleRegister}
@@ -680,14 +833,17 @@ export default function Auth() {
                     fill="#4285F4"
                     d="M21.35 12.23c0-.79-.07-1.55-.2-2.27H12v4.3h5.23a4.47 4.47 0 0 1-1.94 2.93v2.43h3.14c1.84-1.69 2.92-4.18 2.92-7.39z"
                   />
+
                   <path
                     fill="#34A853"
                     d="M12 21.5c2.63 0 4.84-.87 6.45-2.35l-3.14-2.43c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.51A9.74 9.74 0 0 0 12 21.5z"
                   />
+
                   <path
                     fill="#FBBC05"
-                    d="M6.54 13.61A5.85 5.85 0 0 1 6.23 12c0-.56.1-1.1.31-1.61V7.88H3.3A9.75 9.75 0 0 0 2.25 12c0 1.57.38 3.05 1.05 4.12l3.24-2.51C7.31 8.08 9.46 6.36 12 6.36z"
+                    d="M6.54 13.61A5.85 5.85 0 0 1 6.23 12c0-.56.1-1.1.31-1.61V7.88H3.3A9.75 9.75 0 0 0 2.25 12c0 1.57.38 3.05 1.05 4.12l3.24-2.51z"
                   />
+
                   <path
                     fill="#EA4335"
                     d="M12 6.36c1.43 0 2.71.49 3.72 1.46l2.79-2.79C16.83 3.48 14.63 2.5 12 2.5a9.74 9.74 0 0 0-8.7 5.38l3.24 2.51C7.31 8.08 9.46 6.36 12 6.36z"
@@ -695,6 +851,10 @@ export default function Auth() {
                 </svg>
                 Continue with Google
               </button>
+
+              {/* =================================================
+                  SIGN IN LINK
+              ================================================= */}
 
               <p className="text-center text-xs text-muted-foreground">
                 Already have an account?{" "}
@@ -708,18 +868,6 @@ export default function Auth() {
                 >
                   Sign in
                 </button>
-              </p>
-
-              <p className="text-center text-[10px] text-muted-foreground/70">
-                By creating an account you agree to our{" "}
-                <a href="#" className="underline">
-                  Terms of Service
-                </a>{" "}
-                and{" "}
-                <a href="#" className="underline">
-                  Privacy Policy
-                </a>
-                .
               </p>
             </form>
           )}

@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   ReactNode,
+  useCallback,
 } from "react";
 
 import { auth, customerDb } from "../components/firebase";
@@ -16,7 +17,22 @@ import {
   createUserWithEmailAndPassword,
   sendEmailVerification,
 } from "firebase/auth";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  collection,
+  query,
+  where,
+  orderBy,
+  limit,
+  onSnapshot,
+  runTransaction,
+  serverTimestamp,
+  writeBatch,
+} from "firebase/firestore";
 
 export interface Notification {
   id: string;
@@ -25,6 +41,11 @@ export interface Notification {
   message: string;
   date: string;
   read: boolean;
+  userId?: string;
+  role?: string;
+  eventId?: string;
+  targetPath?: string;
+  createdAt?: any;
 }
 
 export interface Booking {
@@ -68,25 +89,29 @@ export interface User {
   lastName: string;
   email: string;
   phone: string;
-  nationality: string;
   avatar: string;
   memberSince: string;
+}
+
+interface CreateNotificationInput {
+  eventId: string;
+  type: string;
+  title: string;
+  message: string;
+  targetPath?: string;
 }
 
 interface AppContextType {
   user: User | null;
 
   login: (email: string, password: string) => Promise<boolean>;
-
   googleLogin: () => Promise<boolean>;
-
   logout: () => Promise<void>;
 
   googleRegister: (data: {
     firstName: string;
     lastName: string;
     phone: string;
-    nationality: string;
   }) => Promise<boolean>;
 
   register: (data: {
@@ -94,7 +119,6 @@ interface AppContextType {
     lastName: string;
     email: string;
     phone: string;
-    nationality: string;
     password: string;
   }) => Promise<boolean>;
 
@@ -106,9 +130,10 @@ interface AppContextType {
   modifyBooking: (id: string, updates: Partial<Booking>) => void;
 
   notifications: Notification[];
-  markNotificationRead: (id: string) => void;
-  markAllRead: () => void;
+  markNotificationRead: (id: string) => Promise<void>;
+  markAllRead: () => Promise<void>;
   unreadCount: number;
+  createNotification: (data: CreateNotificationInput) => Promise<void>;
 
   pendingPayment: Booking | null;
   setPendingPayment: (b: Booking | null) => void;
@@ -116,17 +141,46 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null);
 
+function formatNotificationDate(value: any): string {
+  if (!value) return "";
+
+  let date: Date | null = null;
+
+  if (typeof value?.toDate === "function") {
+    date = value.toDate();
+  } else if (value instanceof Date) {
+    date = value;
+  } else if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) date = parsed;
+  } else if (typeof value === "object" && value.seconds) {
+    date = new Date(value.seconds * 1000);
+  }
+
+  if (!date || Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleString("en-PH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function safeEventId(eventId: string): string {
+  return encodeURIComponent(eventId.trim()).replace(/\./g, "%2E");
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-
   const [pendingPayment, setPendingPayment] = useState<Booking | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
         setUser(null);
+        setBookings([]);
+        setNotifications([]);
         return;
       }
 
@@ -141,7 +195,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               firebaseUser.displayName?.split(" ").slice(1).join(" ") || "",
             email: firebaseUser.email || "",
             phone: "",
-            nationality: "",
             avatar: firebaseUser.photoURL || "",
             memberSince: new Date().toLocaleDateString("en-US", {
               month: "long",
@@ -159,7 +212,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
             lastName: newUser.lastName,
             email: newUser.email,
             phone: newUser.phone,
-            nationality: newUser.nationality,
             avatar: newUser.avatar,
             memberSince: newUser.memberSince,
           });
@@ -175,13 +227,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           lastName: data.lastName || "",
           email: data.email || firebaseUser.email || "",
           phone: data.phone || "",
-          nationality: data.nationality || "",
           avatar: data.avatar || "",
           memberSince: data.memberSince || "",
         });
       } catch (error) {
         console.error("Error loading user profile:", error);
-
         setUser(null);
       }
     });
@@ -194,7 +244,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     lastName: string;
     email: string;
     phone: string;
-    nationality: string;
     password: string;
   }): Promise<boolean> => {
     try {
@@ -206,12 +255,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const firebaseUser = result.user;
       await sendEmailVerification(firebaseUser);
+
       await setDoc(doc(customerDb, "Users", firebaseUser.uid), {
         firstName: data.firstName,
         lastName: data.lastName,
         email: data.email,
         phone: data.phone,
-        nationality: data.nationality,
         avatar: "",
         memberSince: new Date().toLocaleDateString("en-US", {
           month: "long",
@@ -258,9 +307,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const result = await signInWithPopup(auth, provider);
       const firebaseUser = result.user;
 
-      console.log("Google UID:", firebaseUser.uid);
-      console.log("Google Email:", firebaseUser.email);
-
       if (!firebaseUser.email) {
         throw new Error("Google account does not have an email.");
       }
@@ -280,7 +326,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           lastName,
           email: firebaseUser.email,
           phone: "",
-          nationality: "",
           avatar: firebaseUser.photoURL || "",
           memberSince: new Date().toLocaleDateString("en-US", {
             month: "long",
@@ -291,10 +336,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         };
 
         await setDoc(userRef, userData);
-
-        console.log("Google user saved to Firestore!");
-      } else {
-        console.log("Google user already exists in Firestore.");
       }
 
       return true;
@@ -308,7 +349,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     firstName: string;
     lastName: string;
     phone: string;
-    nationality: string;
   }): Promise<boolean> => {
     try {
       const provider = new GoogleAuthProvider();
@@ -318,7 +358,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       const result = await signInWithPopup(auth, provider);
-
       const firebaseUser = result.user;
 
       if (!firebaseUser.email) {
@@ -326,12 +365,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const userRef = doc(customerDb, "Users", firebaseUser.uid);
-
       const existingUser = await getDoc(userRef);
 
       if (existingUser.exists()) {
-        console.log("Google account already has a profile.");
-
         return true;
       }
 
@@ -340,7 +376,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         lastName: data.lastName,
         email: firebaseUser.email,
         phone: data.phone,
-        nationality: data.nationality,
         avatar: firebaseUser.photoURL || "",
         memberSince: new Date().toLocaleDateString("en-US", {
           month: "long",
@@ -350,16 +385,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         provider: "google",
       });
 
-      console.log("Google account registered successfully.");
-      console.log("Firebase UID:", firebaseUser.uid);
-      console.log("Google Email:", firebaseUser.email);
-
       return true;
     } catch (error: any) {
       console.error("Google registration error:", error);
       console.error("Code:", error.code);
       console.error("Message:", error.message);
-
       return false;
     }
   };
@@ -368,6 +398,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await signOut(auth);
       setUser(null);
+      setBookings([]);
+      setNotifications([]);
     } catch (error) {
       console.error("Logout error:", error);
     }
@@ -377,6 +409,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (user) {
       const updated = { ...user, ...data };
       setUser(updated);
+
       localStorage.setItem(
         "cbr_registered_" + updated.email,
         JSON.stringify(updated),
@@ -384,43 +417,188 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const addBooking = (booking: Booking) => {
-    setBookings((prev) => [booking, ...prev]);
-    setNotifications((prev) => [
-      {
-        id: "n_" + Date.now(),
-        type: "booking",
-        title: "Booking Confirmed!",
-        message: `Your reservation for ${booking.roomName} (${booking.checkIn} – ${booking.checkOut}) has been confirmed. Ref: ${booking.bookingRef}`,
-        date: new Date().toISOString().split("T")[0],
-        read: false,
+  const createNotification = useCallback(
+    async (data: CreateNotificationInput) => {
+      const firebaseUser = auth.currentUser;
+
+      if (!firebaseUser) {
+        console.warn("Cannot create notification: no authenticated user.");
+        return;
+      }
+
+      const eventId = data.eventId.trim();
+
+      if (!eventId) {
+        console.warn("Cannot create notification: eventId is required.");
+        return;
+      }
+
+      const notificationId = `${firebaseUser.uid}_${safeEventId(eventId)}`;
+      const notificationRef = doc(customerDb, "Notifications", notificationId);
+
+      try {
+        await runTransaction(customerDb, async (transaction) => {
+          const existing = await transaction.get(notificationRef);
+
+          if (existing.exists()) return;
+
+          transaction.set(notificationRef, {
+            userId: firebaseUser.uid,
+            role: "customer",
+            eventId,
+            type: data.type || "system",
+            title: data.title || "Notification",
+            message: data.message || "",
+            targetPath: data.targetPath || "",
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        });
+      } catch (error) {
+        console.error("Error creating notification:", error);
+        throw error;
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!user?.id) {
+      setNotifications([]);
+      return;
+    }
+
+    const notificationsQuery = query(
+      collection(customerDb, "Notifications"),
+      where("userId", "==", user.id),
+      limit(100),
+    );
+
+    const unsubscribe = onSnapshot(
+      notificationsQuery,
+      (snapshot) => {
+        const items: Notification[] = snapshot.docs.map((item) => {
+          const data = item.data();
+
+          return {
+            id: item.id,
+            type: data.type || "system",
+            title: data.title || "Notification",
+            message: data.message || "",
+            date: formatNotificationDate(data.createdAt),
+            read: Boolean(data.read),
+            userId: data.userId,
+            role: data.role,
+            eventId: data.eventId,
+            targetPath: data.targetPath || "",
+            createdAt: data.createdAt,
+          };
+        });
+
+        items.sort((a, b) => {
+          const aTime = a.createdAt?.toMillis?.() ?? 0;
+          const bTime = b.createdAt?.toMillis?.() ?? 0;
+          return bTime - aTime;
+        });
+
+        setNotifications(items);
       },
-      ...prev,
-    ]);
+      (error) => {
+        console.error("Error listening to notifications:", error);
+        setNotifications([]);
+      },
+    );
+
+    return unsubscribe;
+  }, [user?.id]);
+
+  const markNotificationRead = useCallback(
+    async (id: string) => {
+      if (!user?.id) return;
+
+      try {
+        await updateDoc(doc(customerDb, "Notifications", id), {
+          read: true,
+        });
+      } catch (error) {
+        console.error("Error marking notification as read:", error);
+        throw error;
+      }
+    },
+    [user?.id],
+  );
+
+  const markAllRead = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      const unread = notifications.filter((notification) => !notification.read);
+
+      for (let start = 0; start < unread.length; start += 450) {
+        const batch = writeBatch(customerDb);
+        const chunk = unread.slice(start, start + 450);
+
+        chunk.forEach((notification) => {
+          batch.update(doc(customerDb, "Notifications", notification.id), {
+            read: true,
+          });
+        });
+
+        await batch.commit();
+      }
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error);
+      throw error;
+    }
+  }, [user?.id, notifications]);
+
+  const unreadCount = notifications.filter(
+    (notification) => !notification.read,
+  ).length;
+
+  const addBooking = (booking: Booking) => {
+    setBookings((prev) => {
+      if (prev.some((item) => item.id === booking.id)) return prev;
+      return [booking, ...prev];
+    });
+
+    void createNotification({
+      eventId: `booking-created-${booking.bookingRef || booking.id}`,
+      type: "booking",
+      title: "Booking submitted",
+      message: `Your reservation for ${booking.roomName} (${booking.checkIn} – ${booking.checkOut}) has been submitted. Ref: ${booking.bookingRef}`,
+      targetPath: "/my-bookings",
+    }).catch((error) => {
+      console.error("Booking notification failed:", error);
+    });
   };
 
   const cancelBooking = async (id: string) => {
     try {
+      const booking = bookings.find((item) => item.id === id);
+
       await updateDoc(doc(customerDb, "Bookings", id), {
         status: "cancelled",
       });
 
       setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)),
+        prev.map((bookingItem) =>
+          bookingItem.id === id
+            ? { ...bookingItem, status: "cancelled" }
+            : bookingItem,
+        ),
       );
-      const booking = bookings.find((b) => b.id === id);
+
       if (booking) {
-        setNotifications((prev) => [
-          {
-            id: "n_" + Date.now(),
-            type: "booking",
-            title: "Booking Cancelled",
-            message: `Your reservation for ${booking.roomName} (Ref: ${booking.bookingRef}) has been cancelled.`,
-            date: new Date().toISOString().split("T")[0],
-            read: false,
-          },
-          ...prev,
-        ]);
+        void createNotification({
+          eventId: `booking-cancelled-${booking.bookingRef || id}`,
+          type: "booking",
+          title: "Booking cancelled",
+          message: `Your reservation for ${booking.roomName} (${booking.checkIn} – ${booking.checkOut}) has been cancelled. Ref: ${booking.bookingRef}`,
+          targetPath: "/my-bookings",
+        }).catch((error) => {
+          console.error("Cancellation notification failed:", error);
+        });
       }
     } catch (error) {
       console.error("Error cancelling booking:", error);
@@ -431,26 +609,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const modifyBooking = async (id: string, updates: Partial<Booking>) => {
     try {
       await updateDoc(doc(customerDb, "Bookings", id), updates);
+
       setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+        prev.map((booking) =>
+          booking.id === id ? { ...booking, ...updates } : booking,
+        ),
       );
     } catch (error) {
       console.error("Error modifying booking:", error);
       throw error;
     }
   };
-
-  const markNotificationRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
-    );
-  };
-
-  const markAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  };
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
     <AppContext.Provider
@@ -462,14 +631,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         googleRegister,
         logout,
         updateProfile,
+
         bookings,
         addBooking,
         cancelBooking,
         modifyBooking,
+
         notifications,
         markNotificationRead,
         markAllRead,
         unreadCount,
+        createNotification,
+
         pendingPayment,
         setPendingPayment,
       }}
@@ -481,6 +654,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
 export function useApp() {
   const ctx = useContext(AppContext);
-  if (!ctx) throw new Error("useApp must be inside AppProvider");
+
+  if (!ctx) {
+    throw new Error("useApp must be inside AppProvider");
+  }
+
   return ctx;
 }

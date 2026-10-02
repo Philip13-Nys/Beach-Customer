@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "react-router";
+import { Link, Navigate, useLocation } from "react-router";
 import { Booking, useApp } from "../context/AppContext";
 import {
   Calendar,
@@ -17,11 +17,12 @@ import { auth, customerDb } from "../components/firebase";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useApp();
-  const navigate = useNavigate();
+  const location = useLocation();
+
   if (!user) {
-    navigate("/auth");
-    return null;
+    return <Navigate to="/auth" replace state={{ from: location }} />;
   }
+
   return <>{children}</>;
 }
 

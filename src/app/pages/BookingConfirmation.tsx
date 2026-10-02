@@ -200,7 +200,7 @@ export default function BookingConfirmation() {
                 className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                   paymentStatus === "paid"
                     ? "bg-blue-100 text-blue-700"
-                    : paymentStatus === "partial"
+                    : paymentStatus === "Partially Paid"
                       ? "bg-orange-100 text-orange-700"
                       : paymentStatus === "pending_verification"
                         ? "bg-amber-100 text-amber-700"

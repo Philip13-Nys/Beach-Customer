@@ -19,7 +19,6 @@ import {
   serverTimestamp,
   query,
   where,
-  updateDoc,
 } from "firebase/firestore";
 
 type RoomType = {
@@ -31,6 +30,7 @@ type RoomType = {
   basePrice: number;
   image: string;
 };
+
 type SelectedAddOn = {
   id: string;
   type: "service" | "package";
@@ -41,10 +41,12 @@ type SelectedAddOn = {
 
 export default function BookingPage() {
   const { id } = useParams();
-  const { user, addBooking, setPendingPayment } = useApp();
+  const { user, createNotification } = useApp();
   const navigate = useNavigate();
+
   const today = new Date().toISOString().split("T")[0];
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+
   const [checkIn, setCheckIn] = useState(today);
   const [checkOut, setCheckOut] = useState(tomorrow);
   const [guests, setGuests] = useState(2);
@@ -53,7 +55,6 @@ export default function BookingPage() {
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [room, setRoom] = useState<RoomType | null>(null);
   const [loadingRoom, setLoadingRoom] = useState(true);
-  const [loadingServices, setLoadingServices] = useState(true);
   const [addOnServices, setAddOnServices] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([]);
   const [loadingAddOns, setLoadingAddOns] = useState(true);
@@ -71,18 +72,18 @@ export default function BookingPage() {
         ]);
 
         const serviceData = servicesSnap.docs
-          .map((doc) => ({
-            id: doc.id,
+          .map((item) => ({
+            id: item.id,
             type: "service",
-            ...doc.data(),
+            ...item.data(),
           }))
           .filter((item: any) => item.status === "active");
 
         const packageData = packagesSnap.docs
-          .map((doc) => ({
-            id: doc.id,
+          .map((item) => ({
+            id: item.id,
             type: "package",
-            ...doc.data(),
+            ...item.data(),
           }))
           .filter((item: any) => item.status === "active");
 
@@ -133,8 +134,6 @@ export default function BookingPage() {
 
         if (roomSnap.exists()) {
           const data = roomSnap.data();
-
-          console.log("Room found:", roomSnap.id, data);
 
           const roomData: RoomType = {
             id: roomSnap.id,
@@ -224,6 +223,7 @@ export default function BookingPage() {
 
       return remainingRooms > 0;
     } catch (error) {
+      console.error("Availability check failed:", error);
       alert("Unable to check room availability.");
       return false;
     } finally {
@@ -234,7 +234,7 @@ export default function BookingPage() {
   useEffect(() => {
     if (!room) return;
 
-    checkRoomAvailability();
+    void checkRoomAvailability();
   }, [room, checkIn, checkOut]);
 
   useEffect(() => {
@@ -272,6 +272,7 @@ export default function BookingPage() {
       (new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000,
     ),
   );
+
   const addOns: SelectedAddOn[] = selectedAddOns
     .map((selectedId): SelectedAddOn | null => {
       if (selectedId.startsWith("package-")) {
@@ -302,15 +303,18 @@ export default function BookingPage() {
       };
     })
     .filter((item): item is SelectedAddOn => item !== null);
-  const addOnTotal = addOns.reduce((sum, a) => sum + a.price, 0);
+
+  const addOnTotal = addOns.reduce((sum, item) => sum + item.price, 0);
   const roomTotal = room.basePrice * nights;
   const subtotal = roomTotal + addOnTotal;
   const reservationFee = Math.round(subtotal * (reservationFeePercent / 100));
   const total = subtotal + reservationFee;
 
-  const toggleAddOn = (id: string) => {
+  const toggleAddOn = (addonId: string) => {
     setSelectedAddOns((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      prev.includes(addonId)
+        ? prev.filter((item) => item !== addonId)
+        : [...prev, addonId],
     );
   };
 
@@ -321,16 +325,9 @@ export default function BookingPage() {
       alert("Please log in first.");
       return;
     }
+
     if (!arrivalTime) {
       alert("Please select your estimated time of arrival.");
-      return;
-    }
-
-    const stillAvailable = await checkRoomAvailability();
-
-    if (!stillAvailable) {
-      alert("Sorry, this room is no longer available for the selected dates.");
-      setStep("form");
       return;
     }
 
@@ -347,6 +344,14 @@ export default function BookingPage() {
       return;
     }
 
+    const stillAvailable = await checkRoomAvailability();
+
+    if (!stillAvailable) {
+      alert("Sorry, this room is no longer available for the selected dates.");
+      setStep("form");
+      return;
+    }
+
     try {
       console.log("Starting booking...");
 
@@ -359,10 +364,12 @@ export default function BookingPage() {
       }
 
       const userData = userSnap.data();
-      const customerName =
-        `${userData.firstName || ""} ${userData.lastName || ""}`.trim();
+      const customerName = `${userData.firstName || ""} ${
+        userData.lastName || ""
+      }`.trim();
       const customerEmail = userData.email || currentUser.email || "";
       const customerPhone = userData.phone || "";
+
       const bookingData = {
         userId: currentUser.uid,
         customerName,
@@ -389,21 +396,37 @@ export default function BookingPage() {
           new Date().getFullYear() +
           "-" +
           Math.floor(Math.random() * 900 + 100),
-
         specialRequests,
-
         createdAt: serverTimestamp(),
       };
 
-      const bookingRef = await addDoc(
+      // Save the customer's booking first.
+      const bookingDocRef = await addDoc(
         collection(customerDb, "Bookings"),
         bookingData,
       );
 
-      console.log("Customer booking created:", bookingRef.id);
+      console.log("Customer booking created:", bookingDocRef.id);
 
+      // Create the notification only after the booking is saved.
+      // Notification failure must not undo the successful booking.
+      try {
+        await createNotification({
+          eventId: `booking-created-${bookingDocRef.id}`,
+          type: "booking",
+          title: "Booking submitted",
+          message: `Your reservation for ${room.name} (${checkIn} – ${checkOut}) has been submitted. Ref: ${bookingData.bookingRef}`,
+          targetPath: "/booking-history",
+        });
+
+        console.log("Booking notification created successfully.");
+      } catch (notificationError) {
+        console.error("Booking notification failed:", notificationError);
+      }
+
+      // Save the corresponding reservation in the admin database.
       const reservationData = {
-        bookingId: bookingRef.id,
+        bookingId: bookingDocRef.id,
         roomTypeId: room.id,
         roomName: room.name,
         checkIn,
@@ -416,14 +439,22 @@ export default function BookingPage() {
         createdAt: serverTimestamp(),
       };
 
-      const reservationRef = await addDoc(
-        collection(db, "reservations"),
-        reservationData,
-      );
+      try {
+        const reservationRef = await addDoc(
+          collection(db, "reservations"),
+          reservationData,
+        );
 
-      console.log("Admin reservation created:", reservationRef.id);
+        console.log("Admin reservation created:", reservationRef.id);
+      } catch (reservationError) {
+        console.error("Admin reservation creation failed:", reservationError);
 
-      navigate(`/booking-confirmation/${bookingRef.id}`);
+        alert(
+          "Your customer booking was saved, but the admin reservation could not be created. Please contact the resort.",
+        );
+      }
+
+      navigate(`/booking-confirmation/${bookingDocRef.id}`);
     } catch (error: any) {
       console.error("BOOKING ERROR:", error);
 
@@ -447,6 +478,7 @@ export default function BookingPage() {
         >
           Review Your Booking
         </h1>
+
         <div className="bg-white rounded-2xl border border-border overflow-hidden mb-6">
           <div className="flex gap-4 p-5 border-b border-border">
             <img
@@ -458,7 +490,9 @@ export default function BookingPage() {
             <div>
               <h2
                 className="font-semibold text-foreground"
-                style={{ fontFamily: "var(--font-display)" }}
+                style={{
+                  fontFamily: "var(--font-display)",
+                }}
               >
                 {room.name}
               </h2>
@@ -467,6 +501,7 @@ export default function BookingPage() {
               </p>
             </div>
           </div>
+
           <div className="p-5 grid grid-cols-2 gap-4 text-sm border-b border-border">
             <div>
               <div className="text-xs text-muted-foreground">Check-in</div>
@@ -501,26 +536,27 @@ export default function BookingPage() {
               </div>
             </div>
           </div>
+
           {addOns.length > 0 && (
             <div className="p-5 border-b border-border">
               <div className="text-xs text-muted-foreground mb-2">
                 Add-on Activities & Packages
               </div>
 
-              {addOns.map((a) => (
+              {addOns.map((item) => (
                 <div
-                  key={`${a.type}-${a.id}`}
+                  key={`${item.type}-${item.id}`}
                   className="flex justify-between text-sm py-1"
                 >
-                  <span>{a.name}</span>
-
+                  <span>{item.name}</span>
                   <span className="text-muted-foreground">
-                    ₱{a.price.toLocaleString()}
+                    ₱{item.price.toLocaleString()}
                   </span>
                 </div>
               ))}
             </div>
           )}
+
           <div className="p-5 space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">
@@ -528,24 +564,28 @@ export default function BookingPage() {
               </span>
               <span>₱{roomTotal.toLocaleString()}</span>
             </div>
+
             {addOnTotal > 0 && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Activities</span>
                 <span>₱{addOnTotal.toLocaleString()}</span>
               </div>
             )}
+
             <div className="flex justify-between">
               <span className="text-muted-foreground">
                 Reservation fee ({reservationFeePercent}%)
               </span>
               <span>₱{reservationFee.toLocaleString()}</span>
             </div>
+
             <div className="flex justify-between font-bold text-base pt-2 border-t border-border">
               <span>Total</span>
               <span className="text-accent">₱{total.toLocaleString()}</span>
             </div>
           </div>
         </div>
+
         <div className="flex gap-3">
           <button
             onClick={() => setStep("form")}
@@ -553,6 +593,7 @@ export default function BookingPage() {
           >
             Edit Details
           </button>
+
           <button
             onClick={handleConfirm}
             className="flex-1 bg-accent text-white py-3 rounded-xl text-sm font-semibold hover:bg-accent/90 transition-colors"
@@ -570,7 +611,8 @@ export default function BookingPage() {
         to={`/rooms/${room.id}`}
         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary mb-6 transition-colors"
       >
-        <ArrowLeft className="w-4 h-4" /> Back to room details
+        <ArrowLeft className="w-4 h-4" />
+        Back to room details
       </Link>
 
       <h1
@@ -583,6 +625,7 @@ export default function BookingPage() {
       >
         Book Your Stay
       </h1>
+
       <p className="text-muted-foreground text-sm mb-8">{room.name}</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
@@ -590,13 +633,14 @@ export default function BookingPage() {
           <div className="bg-white rounded-2xl border border-border p-5 sm:p-6">
             <h2
               className="font-semibold text-foreground mb-5 flex items-center gap-2"
-              style={{ fontFamily: "var(--font-display)" }}
+              style={{
+                fontFamily: "var(--font-display)",
+              }}
             >
               <Calendar className="w-4 h-4 text-primary" />
               Stay Details
             </h2>
 
-            {/* Check-in and Check-out */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">
@@ -634,7 +678,6 @@ export default function BookingPage() {
               </div>
             </div>
 
-            {/* Estimated arrival */}
             <div className="mt-5">
               <label className="block text-sm font-medium text-foreground mb-2">
                 Estimated Time of Arrival *
@@ -651,7 +694,6 @@ export default function BookingPage() {
               </p>
             </div>
 
-            {/* Availability */}
             <div className="mt-5">
               {checkingAvailability ? (
                 <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
@@ -675,7 +717,6 @@ export default function BookingPage() {
               )}
             </div>
 
-            {/* Guests */}
             <div className="mt-5 pt-5 border-t border-border">
               <label className="block text-sm font-medium text-foreground mb-3">
                 <span className="inline-flex items-center gap-2">
@@ -726,7 +767,9 @@ export default function BookingPage() {
           <div className="bg-white rounded-2xl border border-border p-5">
             <h2
               className="font-semibold text-foreground mb-1"
-              style={{ fontFamily: "var(--font-display)" }}
+              style={{
+                fontFamily: "var(--font-display)",
+              }}
             >
               Add Activities & Packages (Optional)
             </h2>
@@ -786,7 +829,8 @@ export default function BookingPage() {
                           </div>
 
                           <span className="text-accent font-semibold text-sm flex-shrink-0">
-                            +₱{Number(svc.price || 0).toLocaleString()}
+                            +₱
+                            {Number(svc.price || 0).toLocaleString()}
                           </span>
                         </label>
                       ))}
@@ -900,13 +944,17 @@ export default function BookingPage() {
           <div className="bg-white rounded-2xl border border-border p-5">
             <h2
               className="font-semibold text-foreground mb-1"
-              style={{ fontFamily: "var(--font-display)" }}
+              style={{
+                fontFamily: "var(--font-display)",
+              }}
             >
               Special Requests
             </h2>
+
             <p className="text-xs text-muted-foreground mb-3">
               Let us know about any preferences or special occasions.
             </p>
+
             <textarea
               value={specialRequests}
               onChange={(e) => setSpecialRequests(e.target.value)}
@@ -929,12 +977,15 @@ export default function BookingPage() {
               <div className="absolute bottom-3 left-4 right-4">
                 <h3
                   className="text-white font-semibold text-sm"
-                  style={{ fontFamily: "var(--font-display)" }}
+                  style={{
+                    fontFamily: "var(--font-display)",
+                  }}
                 >
                   {room.name}
                 </h3>
               </div>
             </div>
+
             <div className="p-5 sm:p-6">
               <div className="space-y-2 text-sm mb-4">
                 <div className="flex justify-between">
@@ -944,18 +995,21 @@ export default function BookingPage() {
                   </span>
                   <span>₱{roomTotal.toLocaleString()}</span>
                 </div>
-                {addOns.map((a, i) => (
-                  <div key={i} className="flex justify-between">
-                    <span className="text-muted-foreground">{a.name}</span>
-                    <span>₱{a.price.toLocaleString()}</span>
+
+                {addOns.map((item, index) => (
+                  <div key={index} className="flex justify-between">
+                    <span className="text-muted-foreground">{item.name}</span>
+                    <span>₱{item.price.toLocaleString()}</span>
                   </div>
                 ))}
+
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">
                     Reservation fee ({reservationFeePercent}%)
                   </span>
                   <span>₱{reservationFee.toLocaleString()}</span>
                 </div>
+
                 <div className="flex justify-between items-center font-bold text-base pt-4 mt-3 border-t border-border">
                   <span className="text-foreground">Total</span>
                   <span className="text-accent text-xl">
