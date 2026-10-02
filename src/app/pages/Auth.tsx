@@ -1,7 +1,14 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useApp } from "../context/AppContext";
-import { Eye, EyeOff, Anchor, CheckCircle2, AlertCircle } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  Anchor,
+  CheckCircle2,
+  AlertCircle,
+  ArrowLeft,
+} from "lucide-react";
 
 export default function Auth() {
   const { user, login, register, googleLogin, googleRegister } = useApp();
@@ -39,10 +46,6 @@ export default function Auth() {
       navigate("/");
     }
   }, [user, navigate]);
-
-  // =========================================================
-  // LOGIN
-  // =========================================================
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,10 +88,6 @@ export default function Auth() {
     }
   };
 
-  // =========================================================
-  // GOOGLE LOGIN
-  // =========================================================
-
   const handleGoogleLogin = async () => {
     setLoginError("");
     setRegisterError("");
@@ -124,16 +123,11 @@ export default function Auth() {
     }
   };
 
-  // =========================================================
-  // REGISTER
-  // =========================================================
-
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
     setRegisterError("");
 
-    // Required fields
     if (
       !form.firstName.trim() ||
       !form.lastName.trim() ||
@@ -146,7 +140,6 @@ export default function Auth() {
       return;
     }
 
-    // Terms and Conditions
     if (!form.termsAccepted) {
       setRegisterError(
         "Please agree to the Terms of Service and Privacy Policy to create an account.",
@@ -154,13 +147,11 @@ export default function Auth() {
       return;
     }
 
-    // Password length
     if (form.password.length < 8) {
       setRegisterError("Password must be at least 8 characters.");
       return;
     }
 
-    // Password confirmation
     if (form.password !== form.confirmPassword) {
       setRegisterError("Passwords do not match.");
       return;
@@ -182,7 +173,6 @@ export default function Auth() {
           "Account created successfully! Please check your email and click the verification link before signing in.",
         );
 
-        // Reset registration form
         setForm({
           firstName: "",
           lastName: "",
@@ -220,10 +210,6 @@ export default function Auth() {
       );
     }
   };
-
-  // =========================================================
-  // GOOGLE REGISTER
-  // =========================================================
 
   const handleGoogleRegister = async () => {
     setRegisterError("");
@@ -268,21 +254,12 @@ export default function Auth() {
     }
   };
 
-  // =========================================================
-  // INPUT STYLE
-  // =========================================================
-
   const inputClass =
     "w-full px-4 py-2.5 rounded-xl border border-border bg-white text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground/60";
 
   return (
     <div className="min-h-screen flex">
-      {/* =====================================================
-          LEFT VISUAL
-      ====================================================== */}
-
       <div className="hidden lg:flex flex-col flex-1 relative overflow-hidden">
-        {/* BACKGROUND VIDEO */}
         <video
           autoPlay
           muted
@@ -297,11 +274,9 @@ export default function Auth() {
           />
         </video>
 
-        {/* OVERLAY */}
         <div className="absolute inset-0 bg-gradient-to-b from-primary/80 via-primary/50 to-primary/70" />
 
         <div className="relative z-10 flex flex-col justify-between h-full p-10">
-          {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
               <Anchor className="w-5 h-5 text-white" />
@@ -315,7 +290,6 @@ export default function Auth() {
             </span>
           </Link>
 
-          {/* Content */}
           <div>
             <h2
               className="text-white mb-3"
@@ -351,20 +325,14 @@ export default function Auth() {
             </div>
           </div>
 
-          {/* Copyright */}
           <p className="text-white/40 text-xs">
             © 2026 Sabang Beach & Diving Resorts
           </p>
         </div>
       </div>
 
-      {/* =====================================================
-          RIGHT FORM
-      ====================================================== */}
-
       <div className="flex-1 lg:max-w-lg flex items-center justify-center p-6 bg-background">
         <div className="w-full max-w-md">
-          {/* Mobile Logo */}
           <div className="flex lg:hidden items-center justify-center gap-2 mb-8">
             <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
               <Anchor className="w-5 h-5 text-white" />
@@ -378,9 +346,22 @@ export default function Auth() {
             </span>
           </div>
 
-          {/* =================================================
-              TABS
-          ================================================= */}
+          <button
+            type="button"
+            onClick={() => {
+              if (window.history.length > 1) {
+                navigate(-1);
+              } else {
+                navigate("/");
+              }
+            }}
+            className="flex items-center gap-2 mb-6 text-sm
+    text-muted-foreground hover:text-primary
+    transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back</span>
+          </button>
 
           <div className="flex gap-1 bg-muted p-1 rounded-xl mb-8">
             {(["login", "register"] as const).map((t) => (
@@ -397,10 +378,6 @@ export default function Auth() {
               </button>
             ))}
           </div>
-
-          {/* =================================================
-              LOGIN
-          ================================================= */}
 
           {tab === "login" ? (
             <form onSubmit={handleLogin} className="space-y-4">
@@ -421,7 +398,6 @@ export default function Auth() {
                 </p>
               </div>
 
-              {/* Login Error */}
               {loginError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -429,7 +405,6 @@ export default function Auth() {
                 </div>
               )}
 
-              {/* Email */}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Email address
@@ -444,7 +419,6 @@ export default function Auth() {
                 />
               </div>
 
-              {/* Password */}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Password
@@ -476,7 +450,6 @@ export default function Auth() {
                 </div>
               </div>
 
-              {/* Login Button */}
               <button
                 type="submit"
                 className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
@@ -484,7 +457,6 @@ export default function Auth() {
                 Sign In
               </button>
 
-              {/* OR */}
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-border" />
@@ -497,7 +469,6 @@ export default function Auth() {
                 </div>
               </div>
 
-              {/* Google Login */}
               <button
                 type="button"
                 onClick={handleGoogleLogin}
@@ -524,7 +495,6 @@ export default function Auth() {
                 Continue with Google
               </button>
 
-              {/* Create Account Link */}
               <p className="text-center text-xs text-muted-foreground">
                 No account yet?{" "}
                 <button
@@ -540,12 +510,7 @@ export default function Auth() {
               </p>
             </form>
           ) : (
-            /* =================================================
-                REGISTER
-            ================================================= */
-
             <form onSubmit={handleRegister} className="space-y-3">
-              {/* Heading */}
               <div>
                 <h1
                   className="text-foreground mb-1"
@@ -563,7 +528,6 @@ export default function Auth() {
                 </p>
               </div>
 
-              {/* Register Error */}
               {registerError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -571,12 +535,7 @@ export default function Auth() {
                 </div>
               )}
 
-              {/* =================================================
-                  NAME
-              ================================================= */}
-
               <div className="grid grid-cols-2 gap-3">
-                {/* First Name */}
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1.5">
                     First name *
@@ -596,7 +555,6 @@ export default function Auth() {
                   />
                 </div>
 
-                {/* Last Name */}
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1.5">
                     Last name *
@@ -617,10 +575,6 @@ export default function Auth() {
                 </div>
               </div>
 
-              {/* =================================================
-                  EMAIL
-              ================================================= */}
-
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Email address *
@@ -640,10 +594,6 @@ export default function Auth() {
                 />
               </div>
 
-              {/* =================================================
-                  PHONE
-              ================================================= */}
-
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
                   Phone *
@@ -662,10 +612,6 @@ export default function Auth() {
                   className={inputClass}
                 />
               </div>
-
-              {/* =================================================
-                  PASSWORD
-              ================================================= */}
 
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
@@ -700,10 +646,6 @@ export default function Auth() {
                   </button>
                 </div>
               </div>
-
-              {/* =================================================
-                  CONFIRM PASSWORD
-              ================================================= */}
 
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1.5">
@@ -741,10 +683,6 @@ export default function Auth() {
                 </div>
               </div>
 
-              {/* =================================================
-                  TERMS & CONDITIONS CHECKBOX
-              ================================================= */}
-
               <div className="flex items-start gap-2 pt-1">
                 <input
                   id="termsAccepted"
@@ -756,7 +694,6 @@ export default function Auth() {
                       termsAccepted: e.target.checked,
                     }));
 
-                    // Clear the terms error once checked
                     if (e.target.checked) {
                       setRegisterError("");
                     }
@@ -792,20 +729,12 @@ export default function Auth() {
                 </label>
               </div>
 
-              {/* =================================================
-                  CREATE ACCOUNT
-              ================================================= */}
-
               <button
                 type="submit"
                 className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
               >
                 Create Account
               </button>
-
-              {/* =================================================
-                  OR
-              ================================================= */}
 
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center">
@@ -818,10 +747,6 @@ export default function Auth() {
                   </span>
                 </div>
               </div>
-
-              {/* =================================================
-                  GOOGLE REGISTER
-              ================================================= */}
 
               <button
                 type="button"
@@ -851,10 +776,6 @@ export default function Auth() {
                 </svg>
                 Continue with Google
               </button>
-
-              {/* =================================================
-                  SIGN IN LINK
-              ================================================= */}
 
               <p className="text-center text-xs text-muted-foreground">
                 Already have an account?{" "}

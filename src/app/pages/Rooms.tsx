@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Users, Filter, X, Search } from "lucide-react";
-
 import { db, customerDb } from "../components/firebase";
 import { collection, getDocs } from "firebase/firestore";
 
@@ -175,7 +174,6 @@ export default function Rooms() {
 
       const remaining = Math.max(0, room.count - bookedCount);
 
-      // If Landing passed availability IDs, both checks must agree.
       return (
         remaining > 0 && (!hasAvailabilityParam || availableIds.has(room.id))
       );
@@ -259,7 +257,6 @@ export default function Rooms() {
             bookingsResult.reason,
           );
 
-          // Without bookings, date-specific availability cannot be verified.
           if (hasValidDateRange) {
             setBookings([]);
           }
@@ -289,7 +286,7 @@ export default function Rooms() {
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
           {filtered.length} room{filtered.length !== 1 ? "s" : ""} available ·
-          Busuanga, Palawan
+          Sabang, Puerto
         </p>
         {hasValidDateRange && (
           <p className="text-muted-foreground text-xs mt-1">
@@ -300,9 +297,7 @@ export default function Rooms() {
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8">
-        {/* Filters sidebar */}
         <aside className="lg:w-64 flex-shrink-0">
-          {/* Mobile filter toggle */}
           <button
             onClick={() => setFilterOpen(!filterOpen)}
             className="lg:hidden w-full flex items-center justify-between px-4 py-3 bg-white border border-border rounded-xl text-sm font-medium mb-4"
@@ -404,7 +399,6 @@ export default function Rooms() {
           </div>
         </aside>
 
-        {/* Room grid */}
         <div className="flex-1">
           {loading ? (
             <div className="text-center py-20">
