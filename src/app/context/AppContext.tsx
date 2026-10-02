@@ -8,7 +8,6 @@ import {
 } from "react";
 
 import { auth, customerDb } from "../components/firebase";
-
 import {
   onAuthStateChanged,
   signOut,
@@ -153,16 +152,12 @@ function formatNotificationDate(value: any): string {
     date = value;
   } else if (typeof value === "string" || typeof value === "number") {
     const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) {
-      date = parsed;
-    }
-  } else if (typeof value === "object" && typeof value.seconds === "number") {
+    if (!Number.isNaN(parsed.getTime())) date = parsed;
+  } else if (typeof value === "object" && value.seconds) {
     date = new Date(value.seconds * 1000);
   }
 
-  if (!date || Number.isNaN(date.getTime())) {
-    return "";
-  }
+  if (!date || Number.isNaN(date.getTime())) return "";
 
   return date.toLocaleString("en-PH", {
     dateStyle: "medium",
@@ -180,40 +175,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [pendingPayment, setPendingPayment] = useState<Booking | null>(null);
 
-  // Keep track of the active Firebase session so a delayed
-  // profile request cannot overwrite a newer login.
   useEffect(() => {
-    let activeUid: string | null = null;
-
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
-        activeUid = null;
         setUser(null);
         setBookings([]);
         setNotifications([]);
         return;
       }
 
-      activeUid = firebaseUser.uid;
-      const uid = firebaseUser.uid;
-
       try {
-        const userRef = doc(customerDb, "Users", uid);
-
+        const userRef = doc(customerDb, "Users", firebaseUser.uid);
         const snap = await getDoc(userRef);
 
-        if (activeUid !== uid) return;
-
         if (!snap.exists()) {
-          const displayName = firebaseUser.displayName || "";
-          const nameParts = displayName.trim().split(/\s+/);
-
-          const firstName = nameParts[0] || "";
-          const lastName = nameParts.slice(1).join(" ");
-
           const newUser = {
-            firstName,
-            lastName,
+            firstName: firebaseUser.displayName?.split(" ")[0] || "",
+            lastName:
+              firebaseUser.displayName?.split(" ").slice(1).join(" ") || "",
             email: firebaseUser.email || "",
             phone: "",
             avatar: firebaseUser.photoURL || "",
@@ -227,10 +206,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
           await setDoc(userRef, newUser);
 
-          if (activeUid !== uid) return;
-
           setUser({
-            id: uid,
+            id: firebaseUser.uid,
             firstName: newUser.firstName,
             lastName: newUser.lastName,
             email: newUser.email,
@@ -244,44 +221,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         const data = snap.data();
 
-        if (activeUid !== uid) return;
-
         setUser({
-          id: uid,
+          id: firebaseUser.uid,
           firstName: data.firstName || "",
           lastName: data.lastName || "",
           email: data.email || firebaseUser.email || "",
           phone: data.phone || "",
-          avatar: data.avatar || firebaseUser.photoURL || "",
+          avatar: data.avatar || "",
           memberSince: data.memberSince || "",
         });
       } catch (error) {
-        if (activeUid !== uid) return;
-
         console.error("Error loading user profile:", error);
-
-        // Keep the authenticated identity available even
-        // if the profile document cannot be loaded.
-        setUser({
-          id: uid,
-          firstName: firebaseUser.displayName?.split(" ")[0] || "",
-          lastName:
-            firebaseUser.displayName?.split(" ").slice(1).join(" ") || "",
-          email: firebaseUser.email || "",
-          phone: "",
-          avatar: firebaseUser.photoURL || "",
-          memberSince: "",
-        });
+        setUser(null);
       }
     });
 
-    return () => {
-      activeUid = null;
-      unsubscribe();
-    };
+    return unsubscribe;
   }, []);
 
-  // Email registration
   const register = async (data: {
     firstName: string;
     lastName: string;
@@ -297,7 +254,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
 
       const firebaseUser = result.user;
-
       await sendEmailVerification(firebaseUser);
 
       await setDoc(doc(customerDb, "Users", firebaseUser.uid), {
@@ -322,11 +278,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Email login
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string) => {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
-
       const firebaseUser = result.user;
       await firebaseUser.reload();
 
@@ -342,7 +296,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Google login
   const googleLogin = async (): Promise<boolean> => {
     try {
       const provider = new GoogleAuthProvider();
@@ -352,7 +305,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       const result = await signInWithPopup(auth, provider);
-
       const firebaseUser = result.user;
 
       if (!firebaseUser.email) {
@@ -360,16 +312,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const userRef = doc(customerDb, "Users", firebaseUser.uid);
-
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
         const displayName = firebaseUser.displayName || "";
         const nameParts = displayName.trim().split(/\s+/);
 
-        await setDoc(userRef, {
-          firstName: nameParts[0] || "",
-          lastName: nameParts.slice(1).join(" "),
+        const firstName = nameParts[0] || "";
+        const lastName = nameParts.slice(1).join(" ") || "";
+
+        const userData = {
+          firstName,
+          lastName,
           email: firebaseUser.email,
           phone: "",
           avatar: firebaseUser.photoURL || "",
@@ -379,7 +333,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }),
           createdAt: new Date(),
           provider: "google",
-        });
+        };
+
+        await setDoc(userRef, userData);
       }
 
       return true;
@@ -389,7 +345,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Google registration
   const googleRegister = async (data: {
     firstName: string;
     lastName: string;
@@ -403,7 +358,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       const result = await signInWithPopup(auth, provider);
-
       const firebaseUser = result.user;
 
       if (!firebaseUser.email) {
@@ -411,7 +365,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const userRef = doc(customerDb, "Users", firebaseUser.uid);
-
       const existingUser = await getDoc(userRef);
 
       if (existingUser.exists()) {
@@ -441,39 +394,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Logout
-  const logout = async (): Promise<void> => {
+  const logout = async () => {
     try {
       await signOut(auth);
       setUser(null);
       setBookings([]);
       setNotifications([]);
-      setPendingPayment(null);
     } catch (error) {
       console.error("Logout error:", error);
     }
   };
 
-  // Update profile locally
   const updateProfile = (data: Partial<User>) => {
-    if (!user) return;
+    if (user) {
+      const updated = { ...user, ...data };
+      setUser(updated);
 
-    const updated = {
-      ...user,
-      ...data,
-    };
-
-    setUser(updated);
-
-    localStorage.setItem(
-      "cbr_registered_" + updated.email,
-      JSON.stringify(updated),
-    );
+      localStorage.setItem(
+        "cbr_registered_" + updated.email,
+        JSON.stringify(updated),
+      );
+    }
   };
 
-  // Create a notification for the currently signed-in
-  // customer. The receptionist page can also create docs
-  // directly using this same collection and field format.
   const createNotification = useCallback(
     async (data: CreateNotificationInput) => {
       const firebaseUser = auth.currentUser;
@@ -491,7 +434,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const notificationId = `${firebaseUser.uid}_${safeEventId(eventId)}`;
-
       const notificationRef = doc(customerDb, "Notifications", notificationId);
 
       try {
@@ -520,21 +462,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  // Real-time Firestore notification listener.
   useEffect(() => {
-    const uid = user?.id;
-
-    if (!uid) {
+    if (!user?.id) {
       setNotifications([]);
       return;
     }
 
-    setNotifications([]);
-
     const notificationsQuery = query(
       collection(customerDb, "Notifications"),
-      where("userId", "==", uid),
-      orderBy("createdAt", "desc"),
+      where("userId", "==", user.id),
       limit(100),
     );
 
@@ -559,6 +495,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           };
         });
 
+        items.sort((a, b) => {
+          const aTime = a.createdAt?.toMillis?.() ?? 0;
+          const bTime = b.createdAt?.toMillis?.() ?? 0;
+          return bTime - aTime;
+        });
+
         setNotifications(items);
       },
       (error) => {
@@ -567,13 +509,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
     );
 
-    return () => unsubscribe();
+    return unsubscribe;
   }, [user?.id]);
 
-  // Mark one notification as read.
   const markNotificationRead = useCallback(
-    async (id: string): Promise<void> => {
-      if (!user?.id || !id) return;
+    async (id: string) => {
+      if (!user?.id) return;
 
       try {
         await updateDoc(doc(customerDb, "Notifications", id), {
@@ -587,8 +528,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [user?.id],
   );
 
-  // Mark all currently loaded notifications as read.
-  const markAllRead = useCallback(async (): Promise<void> => {
+  const markAllRead = useCallback(async () => {
     if (!user?.id) return;
 
     try {
@@ -616,13 +556,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (notification) => !notification.read,
   ).length;
 
-  // Local booking list + notification.
   const addBooking = (booking: Booking) => {
     setBookings((prev) => {
-      if (prev.some((item) => item.id === booking.id)) {
-        return prev;
-      }
-
+      if (prev.some((item) => item.id === booking.id)) return prev;
       return [booking, ...prev];
     });
 
@@ -630,18 +566,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       eventId: `booking-created-${booking.bookingRef || booking.id}`,
       type: "booking",
       title: "Booking submitted",
-      message:
-        `Your reservation for ${booking.roomName} ` +
-        `(${booking.checkIn} – ${booking.checkOut}) ` +
-        `has been submitted. Ref: ${booking.bookingRef}`,
+      message: `Your reservation for ${booking.roomName} (${booking.checkIn} – ${booking.checkOut}) has been submitted. Ref: ${booking.bookingRef}`,
       targetPath: "/my-bookings",
     }).catch((error) => {
       console.error("Booking notification failed:", error);
     });
   };
 
-  // Cancel booking in Firestore.
-  const cancelBooking = async (id: string): Promise<void> => {
+  const cancelBooking = async (id: string) => {
     try {
       const booking = bookings.find((item) => item.id === id);
 
@@ -652,10 +584,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setBookings((prev) =>
         prev.map((bookingItem) =>
           bookingItem.id === id
-            ? {
-                ...bookingItem,
-                status: "cancelled",
-              }
+            ? { ...bookingItem, status: "cancelled" }
             : bookingItem,
         ),
       );
@@ -665,10 +594,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           eventId: `booking-cancelled-${booking.bookingRef || id}`,
           type: "booking",
           title: "Booking cancelled",
-          message:
-            `Your reservation for ${booking.roomName} ` +
-            `(${booking.checkIn} – ${booking.checkOut}) ` +
-            `has been cancelled. Ref: ${booking.bookingRef}`,
+          message: `Your reservation for ${booking.roomName} (${booking.checkIn} – ${booking.checkOut}) has been cancelled. Ref: ${booking.bookingRef}`,
           targetPath: "/my-bookings",
         }).catch((error) => {
           console.error("Cancellation notification failed:", error);
@@ -680,22 +606,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Update booking in Firestore.
-  const modifyBooking = async (
-    id: string,
-    updates: Partial<Booking>,
-  ): Promise<void> => {
+  const modifyBooking = async (id: string, updates: Partial<Booking>) => {
     try {
       await updateDoc(doc(customerDb, "Bookings", id), updates);
 
       setBookings((prev) =>
         prev.map((booking) =>
-          booking.id === id
-            ? {
-                ...booking,
-                ...updates,
-              }
-            : booking,
+          booking.id === id ? { ...booking, ...updates } : booking,
         ),
       );
     } catch (error) {
