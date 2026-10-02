@@ -20,7 +20,6 @@ import {
   Star,
   Bot,
   Activity,
-  Check,
   CheckCheck,
 } from "lucide-react";
 
@@ -130,15 +129,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between min-h-16 py-2">
-            <Link to="/" className="flex items-center gap-2 group">
-              <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
+            {/* Logo */}
+            <Link to="/" className="flex items-center gap-2 group min-w-0">
+              <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
                 <Anchor className="w-5 h-5 text-white" />
               </div>
 
               <div className="min-w-0">
                 <div
                   className="text-xs sm:text-sm font-semibold text-primary leading-tight truncate max-w-[150px] sm:max-w-none"
-                  style={{ fontFamily: "var(--font-display)" }}
+                  style={{
+                    fontFamily: "var(--font-display)",
+                  }}
                 >
                   Sabang Beach and Diving Resort
                 </div>
@@ -199,6 +201,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       aria-label={notificationLabel}
                       title={notificationLabel}
                       aria-expanded={notificationsOpen}
+                      aria-haspopup="true"
                       onClick={() => {
                         setNotificationsOpen((open) => !open);
                         setUserMenuOpen(false);
@@ -221,109 +224,212 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     </button>
 
                     {notificationsOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-[min(92vw,380px)] bg-white rounded-xl shadow-xl border border-border z-[60] overflow-hidden">
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                          <div>
-                            <h3 className="text-sm font-semibold text-foreground">
-                              Notifications
-                            </h3>
-                            <p className="text-xs text-muted-foreground">
-                              {unreadCount > 0
-                                ? `${unreadCount} unread`
-                                : "You're all caught up"}
-                            </p>
-                          </div>
+                      <>
+                        {/* Responsive notification panel */}
+                        <div
+                          className="
+                            fixed
+                            left-3 right-3
+                            top-[4.5rem]
+                            w-auto
+                            max-w-none
+                            max-h-[calc(100dvh-5.5rem)]
+                            flex flex-col
+                            bg-white
+                            rounded-xl
+                            shadow-xl
+                            border border-border
+                            z-[100]
+                            overflow-hidden
 
-                          {unreadCount > 0 && (
-                            <button
-                              type="button"
-                              onClick={handleMarkAllRead}
-                              className="text-xs font-medium text-primary hover:text-primary/70 flex items-center gap-1"
-                            >
-                              <CheckCheck className="w-4 h-4" />
-                              Mark all read
-                            </button>
-                          )}
-                        </div>
+                            md:absolute
+                            md:left-auto
+                            md:right-0
+                            md:top-full
+                            md:mt-2
+                            md:w-[380px]
+                            md:max-w-[calc(100vw-2rem)]
+                            md:max-h-[min(75vh,560px)]
+                          "
+                          role="dialog"
+                          aria-label="Notifications"
+                        >
+                          {/* Notification header */}
+                          <div
+                            className="
+                              flex flex-col gap-3
+                              px-3 py-3
+                              border-b border-border
+                              flex-shrink-0
 
-                        <div className="max-h-[min(65vh,440px)] overflow-y-auto">
-                          {!notifications || notifications.length === 0 ? (
-                            <div className="px-5 py-10 text-center">
-                              <div className="w-12 h-12 rounded-full bg-muted mx-auto flex items-center justify-center mb-3">
-                                <Bell className="w-5 h-5 text-muted-foreground" />
-                              </div>
-                              <p className="text-sm font-medium text-foreground">
-                                No notifications yet
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Updates about your bookings and payments will
-                                appear here.
+                              sm:flex-row
+                              sm:items-center
+                              sm:justify-between
+                              sm:px-4
+                            "
+                          >
+                            <div className="min-w-0">
+                              <h3 className="text-sm font-semibold text-foreground">
+                                Notifications
+                              </h3>
+
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {unreadCount > 0
+                                  ? `${unreadCount} unread`
+                                  : "You're all caught up"}
                               </p>
                             </div>
-                          ) : (
-                            notifications
-                              .slice(0, 20)
-                              .map((notification: any) => (
-                                <button
-                                  type="button"
-                                  key={notification.id}
-                                  onClick={() =>
-                                    handleNotificationClick(notification)
-                                  }
-                                  className={`w-full text-left px-4 py-3 border-b border-border last:border-b-0 hover:bg-muted/70 transition-colors ${
-                                    !notification.read
-                                      ? "bg-primary/[0.04]"
-                                      : ""
-                                  }`}
-                                >
-                                  <div className="flex items-start gap-3">
-                                    <div
-                                      className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
-                                        !notification.read
-                                          ? "bg-accent"
-                                          : "bg-transparent"
-                                      }`}
-                                    />
 
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-start justify-between gap-2">
-                                        <p className="text-sm font-semibold text-foreground leading-snug">
-                                          {notification.title || "Notification"}
-                                        </p>
-                                        {!notification.read && (
-                                          <span className="text-[10px] text-accent font-semibold flex-shrink-0">
-                                            NEW
-                                          </span>
-                                        )}
-                                      </div>
+                            {unreadCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={handleMarkAllRead}
+                                className="
+                                  self-start
+                                  sm:self-auto
+                                  text-xs
+                                  font-medium
+                                  text-primary
+                                  hover:text-primary/70
+                                  flex items-center
+                                  gap-1
+                                  whitespace-nowrap
+                                  transition-colors
+                                "
+                              >
+                                <CheckCheck className="w-4 h-4 flex-shrink-0" />
+                                Mark all read
+                              </button>
+                            )}
+                          </div>
 
-                                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                                        {notification.message || ""}
-                                      </p>
-
-                                      <p className="text-[10px] text-muted-foreground mt-2">
-                                        {formatDate(notification.createdAt)}
-                                      </p>
-                                    </div>
-                                  </div>
-                                </button>
-                              ))
-                          )}
-                        </div>
-
-                        <div className="px-4 py-2 border-t border-border bg-muted/30 flex justify-between items-center">
-                          <span className="text-[10px] text-muted-foreground">
-                            Latest updates
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setNotificationsOpen(false)}
-                            className="text-xs font-medium text-primary hover:underline"
+                          {/* Scrollable notification list */}
+                          <div
+                            className="
+                              flex-1
+                              min-h-0
+                              overflow-y-auto
+                              overscroll-contain
+                              max-h-[calc(100dvh-12rem)]
+                              md:max-h-none
+                            "
                           >
-                            Close
-                          </button>
+                            {!notifications || notifications.length === 0 ? (
+                              <div className="px-5 py-10 text-center">
+                                <div className="w-12 h-12 rounded-full bg-muted mx-auto flex items-center justify-center mb-3">
+                                  <Bell className="w-5 h-5 text-muted-foreground" />
+                                </div>
+
+                                <p className="text-sm font-medium text-foreground">
+                                  No notifications yet
+                                </p>
+
+                                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                                  Updates about your bookings and payments will
+                                  appear here.
+                                </p>
+                              </div>
+                            ) : (
+                              notifications
+                                .slice(0, 20)
+                                .map((notification: any) => (
+                                  <button
+                                    type="button"
+                                    key={notification.id}
+                                    onClick={() =>
+                                      handleNotificationClick(notification)
+                                    }
+                                    className={`
+                                      w-full
+                                      text-left
+                                      px-3 py-3
+                                      sm:px-4
+                                      border-b
+                                      border-border
+                                      last:border-b-0
+                                      hover:bg-muted/70
+                                      transition-colors
+                                      ${
+                                        !notification.read
+                                          ? "bg-primary/[0.04]"
+                                          : ""
+                                      }
+                                    `}
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      {/* Unread indicator */}
+                                      <div
+                                        className={`
+                                          w-2 h-2
+                                          rounded-full
+                                          mt-2
+                                          flex-shrink-0
+                                          ${
+                                            !notification.read
+                                              ? "bg-accent"
+                                              : "bg-transparent"
+                                          }
+                                        `}
+                                      />
+
+                                      {/* Notification content */}
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <p className="text-sm font-semibold text-foreground leading-snug break-words min-w-0">
+                                            {notification.title ||
+                                              "Notification"}
+                                          </p>
+
+                                          {!notification.read && (
+                                            <span className="text-[10px] text-accent font-semibold flex-shrink-0 pt-0.5">
+                                              NEW
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed break-words whitespace-normal">
+                                          {notification.message || ""}
+                                        </p>
+
+                                        <p className="text-[10px] text-muted-foreground mt-2">
+                                          {formatDate(notification.createdAt)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </button>
+                                ))
+                            )}
+                          </div>
+
+                          {/* Notification footer */}
+                          <div
+                            className="
+                              px-3 py-2
+                              sm:px-4
+                              border-t
+                              border-border
+                              bg-muted/30
+                              flex
+                              justify-between
+                              items-center
+                              gap-2
+                              flex-shrink-0
+                            "
+                          >
+                            <span className="text-[10px] text-muted-foreground">
+                              Latest updates
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={() => setNotificationsOpen(false)}
+                              className="text-xs font-medium text-primary hover:underline whitespace-nowrap"
+                            >
+                              Close
+                            </button>
+                          </div>
                         </div>
-                      </div>
+                      </>
                     )}
                   </div>
 
@@ -353,13 +459,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     </button>
 
                     {userMenuOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-border py-2 z-50">
+                      <div className="absolute right-0 top-full mt-2 w-56 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-xl border border-border py-2 z-[60]">
                         <div className="px-4 py-2 border-b border-border mb-1">
-                          <div className="text-sm font-semibold text-foreground">
+                          <div className="text-sm font-semibold text-foreground break-words">
                             {user.firstName} {user.lastName}
                           </div>
 
-                          <div className="text-xs text-muted-foreground">
+                          <div className="text-xs text-muted-foreground break-all">
                             {user.email}
                           </div>
                         </div>
@@ -371,7 +477,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             onClick={() => setUserMenuOpen(false)}
                             className="flex items-center gap-3 px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
                           >
-                            <link.icon className="w-4 h-4 text-muted-foreground" />
+                            <link.icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                             {link.label}
                           </Link>
                         ))}
@@ -494,7 +600,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <div>
                   <div
                     className="font-semibold text-white"
-                    style={{ fontFamily: "var(--font-display)" }}
+                    style={{
+                      fontFamily: "var(--font-display)",
+                    }}
                   >
                     Sabang Beach and Diving Resort
                   </div>
