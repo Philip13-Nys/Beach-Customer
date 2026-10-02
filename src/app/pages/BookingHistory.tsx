@@ -23,6 +23,11 @@ import {
 } from "firebase/firestore";
 import { auth, customerDb } from "../components/firebase";
 
+type BookingWithPayment = Booking & {
+  amountPaid?: number;
+  remainingBalance?: number;
+};
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useApp();
   const location = useLocation();
@@ -45,12 +50,14 @@ export default function BookingHistory() {
 function BookingHistoryContent() {
   const { user } = useApp();
 
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [bookings, setBookings] = useState<BookingWithPayment[]>([]);
   const [filter, setFilter] = useState<
     "all" | "confirmed" | "completed" | "cancelled"
   >("all");
   const [cancelTarget, setCancelTarget] = useState<string | null>(null);
-  const [modifyTarget, setModifyTarget] = useState<Booking | null>(null);
+  const [modifyTarget, setModifyTarget] = useState<BookingWithPayment | null>(
+    null,
+  );
   const [modifyDates, setModifyDates] = useState({
     checkIn: "",
     checkOut: "",
@@ -75,7 +82,9 @@ function BookingHistoryContent() {
     // Avoid accidentally listening as a different account than
     // the one represented by the app context.
     if (user.id && user.id !== customerUid) {
-      console.error("Booking History user does not match auth.currentUser.");
+      console.error(
+        "Booking History user does not match customerAuth.currentUser.",
+      );
       setBookings([]);
       return;
     }
@@ -98,14 +107,37 @@ function BookingHistoryContent() {
       (snapshot) => {
         if (!isActive) return;
 
-        const bookingList = snapshot.docs.map((bookingDoc) => ({
-          id: bookingDoc.id,
-          ...bookingDoc.data(),
-        })) as Booking[];
+        const bookingList: BookingWithPayment[] = snapshot.docs.map(
+          (bookingDoc) => {
+            const data = bookingDoc.data();
+
+            const totalPrice = Number(
+              data.totalPrice ?? data.totalAmount ?? data.total ?? 0,
+            );
+            const amountPaid = Number(data.amountPaid ?? 0);
+            const remainingBalance = Math.max(0, totalPrice - amountPaid);
+
+            const paymentStatus =
+              remainingBalance <= 0
+                ? "paid"
+                : amountPaid > 0
+                  ? "partial"
+                  : "unpaid";
+
+            return {
+              id: bookingDoc.id,
+              ...data,
+              totalPrice,
+              amountPaid,
+              remainingBalance,
+              paymentStatus,
+            } as BookingWithPayment;
+          },
+        );
 
         setBookings(bookingList);
 
-        // Initial snapshot only establishes the baseline.
+        // Initial snapshot establishes the baseline.
         // Do not notify for old statuses already in Firestore.
         if (isFirstSnapshot) {
           snapshot.docs.forEach((bookingDoc) => {
@@ -128,13 +160,23 @@ function BookingHistoryContent() {
           const data = change.doc.data();
 
           const oldStatus = previousStatuses.get(bookingId);
+          const totalPrice = Number(
+            data.totalPrice ?? data.totalAmount ?? data.total ?? 0,
+          );
+          const amountPaid = Number(data.amountPaid ?? 0);
+          const remainingBalance = Math.max(0, totalPrice - amountPaid);
+
           const newStatus = {
             status: data.status ?? "",
-            paymentStatus: data.paymentStatus ?? "",
+            paymentStatus:
+              remainingBalance <= 0
+                ? "paid"
+                : amountPaid > 0
+                  ? "partial"
+                  : "unpaid",
           };
 
-          // Update baseline immediately to prevent repeated attempts
-          // when more snapshots arrive.
+          // Update baseline immediately to prevent repeated attempts.
           previousStatuses.set(bookingId, newStatus);
 
           if (!oldStatus) return;
@@ -187,7 +229,6 @@ function BookingHistoryContent() {
           }
 
           for (const notification of notifications) {
-            // Check active state before starting the write.
             if (!isActive) return;
 
             addDoc(collection(customerDb, "Notifications"), {
@@ -240,21 +281,35 @@ function BookingHistoryContent() {
       return;
     }
 
-    const nights = Math.max(
-      1,
-      Math.ceil(
-        (new Date(modifyDates.checkOut).getTime() -
-          new Date(modifyDates.checkIn).getTime()) /
-          86400000,
-      ),
+    const checkInDate = new Date(`${modifyDates.checkIn}T00:00:00`);
+    const checkOutDate = new Date(`${modifyDates.checkOut}T00:00:00`);
+
+    if (
+      Number.isNaN(checkInDate.getTime()) ||
+      Number.isNaN(checkOutDate.getTime()) ||
+      checkOutDate <= checkInDate
+    ) {
+      console.error("Check-out must be after check-in.");
+      return;
+    }
+
+    const nights = Math.ceil(
+      (checkOutDate.getTime() - checkInDate.getTime()) / 86400000,
     );
 
     const addOnsTotal = (modifyTarget.addOns || []).reduce(
-      (sum, addon) => sum + addon.price,
+      (sum, addon) => sum + Number(addon.price || 0),
       0,
     );
 
-    const totalPrice = modifyTarget.roomRate * nights + addOnsTotal;
+    const totalPrice =
+      Number(modifyTarget.roomRate || 0) * nights + addOnsTotal;
+
+    const amountPaid = Number(modifyTarget.amountPaid || 0);
+    const remainingBalance = Math.max(0, totalPrice - amountPaid);
+
+    const paymentStatus =
+      remainingBalance <= 0 ? "paid" : amountPaid > 0 ? "partial" : "unpaid";
 
     try {
       await updateDoc(doc(customerDb, "Bookings", modifyTarget.id), {
@@ -262,6 +317,8 @@ function BookingHistoryContent() {
         checkOut: modifyDates.checkOut,
         nights,
         totalPrice,
+        remainingBalance,
+        paymentStatus,
       });
 
       setBookings((prev) =>
@@ -273,6 +330,8 @@ function BookingHistoryContent() {
                 checkOut: modifyDates.checkOut,
                 nights,
                 totalPrice,
+                remainingBalance,
+                paymentStatus,
               }
             : booking,
         ),
@@ -304,7 +363,7 @@ function BookingHistoryContent() {
 
   const totalSpent = bookings
     .filter((b) => b.paymentStatus === "paid")
-    .reduce((s, b) => s + b.totalPrice, 0);
+    .reduce((sum, b) => sum + Number(b.amountPaid ?? b.totalPrice ?? 0), 0);
 
   const upcoming = bookings.filter(
     (b) => b.status === "confirmed" && new Date(b.checkIn) >= new Date(),
@@ -347,8 +406,16 @@ function BookingHistoryContent() {
             value: bookings.length,
             color: "text-foreground",
           },
-          { label: "Upcoming Stays", value: upcoming, color: "text-blue-600" },
-          { label: "Completed", value: completed, color: "text-green-600" },
+          {
+            label: "Upcoming Stays",
+            value: upcoming,
+            color: "text-blue-600",
+          },
+          {
+            label: "Completed",
+            value: completed,
+            color: "text-green-600",
+          },
           {
             label: "Total Spent",
             value: totalSpent > 0 ? `₱${totalSpent.toLocaleString()}` : "—",
@@ -405,145 +472,187 @@ function BookingHistoryContent() {
         </div>
       ) : (
         <div className="space-y-4">
-          {filtered.map((booking) => (
-            <div
-              key={booking.id}
-              className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm"
-            >
-              <div className="flex flex-col sm:flex-row gap-0">
-                <div className="sm:w-44 h-36 sm:h-auto flex-shrink-0">
-                  <img
-                    src={booking.roomImage}
-                    alt={booking.roomName}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="flex-1 p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                    <div>
-                      <h2
-                        className="font-semibold text-foreground"
-                        style={{
-                          fontFamily: "var(--font-display)",
-                          fontSize: "1.1rem",
-                        }}
-                      >
-                        {booking.roomName}
-                      </h2>
-                      <p
-                        className="text-xs text-muted-foreground"
-                        style={{ fontFamily: "var(--font-mono)" }}
-                      >
-                        {booking.bookingRef}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <span
-                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                          statusColors[booking.status] ||
-                          "bg-gray-100 text-gray-700"
-                        }`}
-                      >
-                        {booking.status.charAt(0).toUpperCase() +
-                          booking.status.slice(1)}
-                      </span>
-                      <span
-                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                          paymentColors[booking.paymentStatus] ||
-                          "bg-gray-50 text-gray-600"
-                        }`}
-                      >
-                        {booking.paymentStatus.charAt(0).toUpperCase() +
-                          booking.paymentStatus.slice(1)}
-                      </span>
-                    </div>
-                  </div>
+          {filtered.map((booking) => {
+            const totalPrice = Number(booking.totalPrice || 0);
+            const amountPaid = Number(booking.amountPaid || 0);
+            const remainingBalance = Math.max(0, totalPrice - amountPaid);
 
-                  <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-3">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5" /> {booking.checkIn} –{" "}
-                      {booking.checkOut}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5" /> {booking.guests} guests
-                      · {booking.nights} nights
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <CreditCard className="w-3.5 h-3.5" /> ₱
-                      {booking.totalPrice.toLocaleString()}
-                    </span>
+            return (
+              <div
+                key={booking.id}
+                className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm"
+              >
+                <div className="flex flex-col sm:flex-row gap-0">
+                  <div className="sm:w-44 h-36 sm:h-auto flex-shrink-0">
+                    <img
+                      src={booking.roomImage}
+                      alt={booking.roomName}
+                      className="w-full h-full object-cover"
+                    />
                   </div>
-
-                  {booking.addOns.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-3">
-                      {booking.addOns.map((a, i) => (
-                        <span
-                          key={i}
-                          className="px-2 py-0.5 bg-secondary text-primary text-[10px] rounded-full"
+                  <div className="flex-1 p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                      <div>
+                        <h2
+                          className="font-semibold text-foreground"
+                          style={{
+                            fontFamily: "var(--font-display)",
+                            fontSize: "1.1rem",
+                          }}
                         >
-                          {a.name}
+                          {booking.roomName}
+                        </h2>
+                        <p
+                          className="text-xs text-muted-foreground"
+                          style={{ fontFamily: "var(--font-mono)" }}
+                        >
+                          {booking.bookingRef}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <span
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                            statusColors[booking.status] ||
+                            "bg-gray-100 text-gray-700"
+                          }`}
+                        >
+                          {booking.status.charAt(0).toUpperCase() +
+                            booking.status.slice(1)}
                         </span>
-                      ))}
+                        <span
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                            paymentColors[
+                              remainingBalance <= 0
+                                ? "paid"
+                                : amountPaid > 0
+                                  ? "partial"
+                                  : "unpaid"
+                            ] || "bg-gray-50 text-gray-600"
+                          }`}
+                        >
+                          {remainingBalance <= 0
+                            ? "Paid"
+                            : amountPaid > 0
+                              ? "Partial"
+                              : "Unpaid"}
+                        </span>
+                      </div>
                     </div>
-                  )}
 
-                  <div className="flex flex-wrap gap-2 pt-3 border-t border-border">
-                    <Link
-                      to={`/booking-confirmation/${booking.id}`}
-                      className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-accent transition-colors px-3 py-1.5 rounded-lg border border-border hover:bg-muted"
-                    >
-                      <Eye className="w-3.5 h-3.5" /> View Details
-                    </Link>
+                    <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-3">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {booking.checkIn} – {booking.checkOut}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Users className="w-3.5 h-3.5" />
+                        {booking.guests} guests · {booking.nights} nights
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <CreditCard className="w-3.5 h-3.5" />₱
+                        {totalPrice.toLocaleString()}
+                      </span>
+                    </div>
 
-                    {(booking.paymentStatus === "unpaid" ||
-                      booking.paymentStatus === "partial") && (
-                      <Link
-                        to={`/payment?bookingId=${booking.id}`}
-                        className="flex items-center gap-1.5 text-xs font-medium bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent/90 transition-colors"
-                      >
-                        <CreditCard className="w-3.5 h-3.5" />
-                        {booking.paymentStatus === "partial"
-                          ? "Pay Balance"
-                          : "Pay Now"}
-                      </Link>
+                    {/* Payment balance details */}
+                    <div className="flex flex-wrap gap-4 text-xs mb-3">
+                      <span className="text-muted-foreground">
+                        Total:{" "}
+                        <strong className="text-foreground">
+                          ₱{totalPrice.toLocaleString()}
+                        </strong>
+                      </span>
+                      <span className="text-muted-foreground">
+                        Amount Paid:{" "}
+                        <strong className="text-green-700">
+                          ₱{amountPaid.toLocaleString()}
+                        </strong>
+                      </span>
+                      <span className="text-muted-foreground">
+                        Remaining Balance:{" "}
+                        <strong
+                          className={
+                            remainingBalance > 0
+                              ? "text-red-600"
+                              : "text-green-700"
+                          }
+                        >
+                          ₱{remainingBalance.toLocaleString()}
+                        </strong>
+                      </span>
+                    </div>
+
+                    {booking.addOns?.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        {booking.addOns.map((a, i) => (
+                          <span
+                            key={i}
+                            className="px-2 py-0.5 bg-secondary text-primary text-[10px] rounded-full"
+                          >
+                            {a.name}
+                          </span>
+                        ))}
+                      </div>
                     )}
 
-                    {booking.status === "confirmed" && (
-                      <>
-                        <button
-                          onClick={() => {
-                            setModifyTarget(booking);
-                            setModifyDates({
-                              checkIn: booking.checkIn,
-                              checkOut: booking.checkOut,
-                            });
-                          }}
+                    <div className="flex flex-wrap gap-2 pt-3 border-t border-border">
+                      <Link
+                        to={`/booking-confirmation/${booking.id}`}
+                        className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-accent transition-colors px-3 py-1.5 rounded-lg border border-border hover:bg-muted"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        View Details
+                      </Link>
+
+                      {remainingBalance > 0 && (
+                        <Link
+                          to={`/payment?bookingId=${booking.id}`}
+                          className="flex items-center gap-1.5 text-xs font-medium bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent/90 transition-colors"
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                          {amountPaid > 0 ? "Pay Balance" : "Pay Now"}
+                        </Link>
+                      )}
+
+                      {booking.status === "confirmed" && (
+                        <>
+                          <button
+                            onClick={() => {
+                              setModifyTarget(booking);
+                              setModifyDates({
+                                checkIn: booking.checkIn,
+                                checkOut: booking.checkOut,
+                              });
+                            }}
+                            className="flex items-center gap-1.5 text-xs font-medium text-foreground px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            Modify
+                          </button>
+                          <button
+                            onClick={() => setCancelTarget(booking.id)}
+                            className="flex items-center gap-1.5 text-xs font-medium text-destructive px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-colors"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            Cancel
+                          </button>
+                        </>
+                      )}
+
+                      {booking.status === "completed" && (
+                        <Link
+                          to="/reviews"
                           className="flex items-center gap-1.5 text-xs font-medium text-foreground px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
                         >
-                          <Edit2 className="w-3.5 h-3.5" /> Modify
-                        </button>
-                        <button
-                          onClick={() => setCancelTarget(booking.id)}
-                          className="flex items-center gap-1.5 text-xs font-medium text-destructive px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-colors"
-                        >
-                          <X className="w-3.5 h-3.5" /> Cancel
-                        </button>
-                      </>
-                    )}
-
-                    {booking.status === "completed" && (
-                      <Link
-                        to="/reviews"
-                        className="flex items-center gap-1.5 text-xs font-medium text-foreground px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
-                      >
-                        ⭐ Leave Review
-                      </Link>
-                    )}
+                          ⭐ Leave Review
+                        </Link>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -589,13 +698,17 @@ function BookingHistoryContent() {
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
             <h2
               className="font-semibold text-foreground mb-4"
-              style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem" }}
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: "1.25rem",
+              }}
             >
               Modify Reservation
             </h2>
             {modifySuccess ? (
               <div className="flex items-center gap-2 text-green-700 py-4 justify-center">
-                <CheckCircle2 className="w-5 h-5" /> Reservation updated!
+                <CheckCircle2 className="w-5 h-5" />
+                Reservation updated!
               </div>
             ) : (
               <>

@@ -8,6 +8,7 @@ type RoomType = {
   id: string;
   name: string;
   count: number;
+  availableCount?: number;
   amenities: string[];
   maxGuests: number;
   basePrice: number;
@@ -28,6 +29,15 @@ type Booking = {
   numberOfRooms?: number;
 };
 
+type IndividualRoom = {
+  id: string;
+  roomId: string;
+  roomTypeId: string;
+  roomTypeName: string;
+  type?: string;
+  status: string;
+};
+
 function toDate(value: any): Date | null {
   if (!value) return null;
 
@@ -45,7 +55,7 @@ function toDate(value: any): Date | null {
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
-  if (typeof value === "object" && value.seconds) {
+  if (typeof value === "object" && value.seconds != null) {
     const date = new Date(value.seconds * 1000);
     return Number.isNaN(date.getTime()) ? null : date;
   }
@@ -76,45 +86,87 @@ function bookingOverlaps(
   );
 }
 
-function isInactiveBooking(status?: string): boolean {
-  const normalized = (status || "").toLowerCase().trim();
-  return ["cancelled", "canceled", "rejected", "declined"].includes(normalized);
+function normalize(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
-function getBookingRoomTypeValues(booking: Booking): string[] {
-  const values: string[] = [];
+function isInactiveBooking(status?: string): boolean {
+  return ["cancelled", "canceled", "rejected", "declined"].includes(
+    normalize(status),
+  );
+}
 
-  if (booking.roomTypeId) values.push(String(booking.roomTypeId));
-  if (booking.roomId) values.push(String(booking.roomId));
-  if (booking.roomName) values.push(String(booking.roomName));
-
-  if (typeof booking.roomType === "string") {
-    values.push(booking.roomType);
-  } else if (booking.roomType && typeof booking.roomType === "object") {
-    if (booking.roomType.id) values.push(String(booking.roomType.id));
-    if (booking.roomType.name) values.push(String(booking.roomType.name));
-  }
-
-  return values.map((value) => value.trim().toLowerCase()).filter(Boolean);
+function isBlockingBooking(status?: string): boolean {
+  return ["pending", "confirmed", "approved"].includes(normalize(status));
 }
 
 function getBookingQuantity(booking: Booking): number {
-  const quantity = Number(
+  const raw = Number(
     booking.quantity ?? booking.numberOfRooms ?? booking.rooms ?? 1,
   );
 
-  return Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1;
+}
+
+function getBookingTypeValues(booking: Booking): string[] {
+  const values = [
+    booking.roomTypeId,
+    booking.roomName,
+    typeof booking.roomType === "string"
+      ? booking.roomType
+      : booking.roomType?.id,
+    typeof booking.roomType === "object" ? booking.roomType?.name : undefined,
+  ];
+
+  return values.map(normalize).filter(Boolean);
+}
+
+function roomMatchesBookingType(
+  room: IndividualRoom,
+  booking: Booking,
+): boolean {
+  const bookingValues = getBookingTypeValues(booking);
+  const roomTypeId = normalize(room.roomTypeId);
+  const roomTypeName = normalize(room.roomTypeName);
+
+  return (
+    bookingValues.includes(roomTypeId) || bookingValues.includes(roomTypeName)
+  );
+}
+
+function bookingMatchesIndividualRoom(
+  room: IndividualRoom,
+  booking: Booking,
+): boolean {
+  const bookingRoomId = normalize(booking.roomId);
+
+  if (!bookingRoomId) return false;
+
+  // Direct individual-room match.
+  if (
+    bookingRoomId === normalize(room.id) ||
+    bookingRoomId === normalize(room.roomId)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 export default function Rooms() {
   const [params] = useSearchParams();
+
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [maxPrice, setMaxPrice] = useState(50000);
   const [minCapacity, setMinCapacity] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
+
   const [rooms, setRooms] = useState<RoomType[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [individualRooms, setIndividualRooms] = useState<IndividualRoom[]>([]);
   const [loading, setLoading] = useState(true);
 
   const guestsParam = params.get("guests")
@@ -123,8 +175,10 @@ export default function Rooms() {
 
   const checkInParam = params.get("checkIn");
   const checkOutParam = params.get("checkOut");
+
   const requestedCheckIn = checkInParam ? toDate(checkInParam) : null;
   const requestedCheckOut = checkOutParam ? toDate(checkOutParam) : null;
+
   const hasValidDateRange =
     !!requestedCheckIn &&
     !!requestedCheckOut &&
@@ -132,55 +186,269 @@ export default function Rooms() {
 
   const availableIdsParam = params.get("availableRoomTypes");
   const hasAvailabilityParam = availableIdsParam !== null;
+
   const availableIds = useMemo(
     () =>
       new Set(
         (availableIdsParam || "")
           .split(",")
-          .map((id) => id.trim())
+          .map((id) => id.trim().toLowerCase())
           .filter(Boolean),
       ),
     [availableIdsParam],
   );
 
-  const roomsWithAvailability = useMemo(() => {
-    if (!hasValidDateRange || !requestedCheckIn || !requestedCheckOut) {
-      if (hasAvailabilityParam) {
-        return rooms.filter((room) => availableIds.has(room.id));
-      }
-      return rooms;
-    }
+  useEffect(() => {
+    let active = true;
 
-    return rooms.filter((room) => {
-      const roomName = room.name.trim().toLowerCase();
+    const loadRooms = async () => {
+      setLoading(true);
 
-      const matchingBookings = bookings.filter((booking) => {
-        if (isInactiveBooking(booking.status)) return false;
-        if (!bookingOverlaps(booking, requestedCheckIn, requestedCheckOut)) {
-          return false;
+      try {
+        const [roomTypesResult, bookingsResult, individualRoomsResult] =
+          await Promise.allSettled([
+            getDocs(collection(db, "roomTypes")),
+            getDocs(collection(customerDb, "Bookings")),
+            getDocs(collection(db, "rooms")),
+          ]);
+
+        if (!active) return;
+
+        if (roomTypesResult.status === "rejected") {
+          console.error("Failed to load room types:", roomTypesResult.reason);
+          setRooms([]);
+          setBookings([]);
+          setIndividualRooms([]);
+          return;
         }
 
-        const identifiers = getBookingRoomTypeValues(booking);
-        return (
-          identifiers.includes(room.id.toLowerCase()) ||
-          identifiers.includes(roomName)
+        const roomTypesSnapshot = roomTypesResult.value;
+
+        const roomData: RoomType[] = roomTypesSnapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          return {
+            id: doc.id,
+            name: String(data.name || ""),
+            count: Math.max(
+              0,
+              Number(data.count ?? data.quantity ?? data.totalRooms ?? 0),
+            ),
+            amenities: Array.isArray(data.amenities) ? data.amenities : [],
+            maxGuests: Number(data.maxGuests ?? data.capacity ?? 1),
+            basePrice: Number(data.basePrice ?? data.price ?? 0),
+            image: String(data.image || ""),
+          };
+        });
+
+        // Match room type names to their Firestore document IDs,
+        // as the Admin Room Availability page does.
+        const nameToRoomTypeId: Record<string, string> = {};
+
+        roomData.forEach((roomType) => {
+          const name = normalize(roomType.name);
+          if (name) nameToRoomTypeId[name] = roomType.id;
+        });
+
+        let individualRoomData: IndividualRoom[] = [];
+
+        if (individualRoomsResult.status === "fulfilled") {
+          individualRoomData = individualRoomsResult.value.docs.map(
+            (roomDoc) => {
+              const data = roomDoc.data();
+              const typeName = String(
+                data.type ||
+                  data.roomTypeName ||
+                  (typeof data.roomType === "string"
+                    ? data.roomType
+                    : data.roomType?.name) ||
+                  "",
+              );
+
+              const directTypeId = String(
+                data.roomTypeId ||
+                  data.typeId ||
+                  (typeof data.roomType === "object"
+                    ? data.roomType?.id
+                    : "") ||
+                  "",
+              );
+
+              const resolvedTypeId =
+                directTypeId || nameToRoomTypeId[normalize(typeName)] || "";
+
+              return {
+                id: roomDoc.id,
+                roomId: String(data.roomId || roomDoc.id),
+                roomTypeId: resolvedTypeId,
+                roomTypeName: typeName,
+                type: typeName,
+                status: normalize(data.status || "available"),
+              };
+            },
+          );
+        } else {
+          console.warn(
+            "Could not load individual rooms:",
+            individualRoomsResult.reason,
+          );
+        }
+
+        let bookingData: Booking[] = [];
+
+        if (bookingsResult.status === "fulfilled") {
+          bookingData = bookingsResult.value.docs.map((bookingDoc) => ({
+            id: bookingDoc.id,
+            ...bookingDoc.data(),
+          })) as Booking[];
+        } else {
+          console.error(
+            "Failed to load customer bookings:",
+            bookingsResult.reason,
+          );
+        }
+
+        console.log("ROOM TYPE MAP:", nameToRoomTypeId);
+        console.log("INDIVIDUAL ROOMS:", individualRoomData);
+        console.log("CUSTOMER BOOKINGS:", bookingData);
+
+        setRooms(roomData);
+        setBookings(bookingData);
+        setIndividualRooms(individualRoomData);
+      } catch (error) {
+        console.error("Error loading rooms:", error);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadRooms();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const roomsWithAvailability = useMemo(() => {
+    return rooms
+      .map((roomType) => {
+        const typeRooms = individualRooms.filter(
+          (room) =>
+            normalize(room.roomTypeId) === normalize(roomType.id) ||
+            normalize(room.roomTypeName) === normalize(roomType.name),
         );
-      });
 
-      const bookedCount = matchingBookings.reduce(
-        (total, booking) => total + getBookingQuantity(booking),
-        0,
+        // Use actual individual-room inventory when available.
+        // Fall back to roomTypes.count only if no individual room docs
+        // can be matched to this room type.
+        const hasIndividualInventory = typeRooms.length > 0;
+
+        const inventory = hasIndividualInventory
+          ? typeRooms.filter((room) => room.status !== "maintenance")
+          : [];
+
+        const activeBookings = bookings.filter(
+          (booking) =>
+            isBlockingBooking(booking.status) &&
+            !isInactiveBooking(booking.status) &&
+            hasValidDateRange &&
+            requestedCheckIn &&
+            requestedCheckOut &&
+            bookingOverlaps(booking, requestedCheckIn, requestedCheckOut),
+        );
+
+        let availableCount = 0;
+
+        if (!hasValidDateRange || !requestedCheckIn || !requestedCheckOut) {
+          // Without dates, show the count of rooms not in maintenance.
+          availableCount = hasIndividualInventory
+            ? inventory.length
+            : roomType.count;
+        } else if (hasIndividualInventory) {
+          // Count individual rooms that have no matching booking.
+          const typeBookings = activeBookings.filter((booking) =>
+            roomMatchesBookingType(
+              {
+                id: "",
+                roomId: "",
+                roomTypeId: roomType.id,
+                roomTypeName: roomType.name,
+                status: "",
+              },
+              booking,
+            ),
+          );
+
+          const specificallyBookedRoomIds = new Set<string>();
+          let typeLevelBookedCount = 0;
+
+          typeBookings.forEach((booking) => {
+            const bookingRoomId = normalize(booking.roomId);
+
+            const matchingIndividualRoom = inventory.find(
+              (room) =>
+                bookingRoomId === normalize(room.id) ||
+                bookingRoomId === normalize(room.roomId),
+            );
+
+            if (matchingIndividualRoom) {
+              specificallyBookedRoomIds.add(matchingIndividualRoom.id);
+            } else {
+              // If roomId contains the type ID (rather than a room ID),
+              // the booking represents a quantity of rooms of this type.
+              const isTypeLevelBooking =
+                bookingRoomId === normalize(roomType.id) ||
+                getBookingTypeValues(booking).includes(
+                  normalize(roomType.id),
+                ) ||
+                getBookingTypeValues(booking).includes(
+                  normalize(roomType.name),
+                );
+
+              if (isTypeLevelBooking) {
+                typeLevelBookedCount += getBookingQuantity(booking);
+              }
+            }
+          });
+
+          const unbookedIndividualCount = inventory.filter(
+            (room) => !specificallyBookedRoomIds.has(room.id),
+          ).length;
+
+          availableCount = Math.max(
+            0,
+            unbookedIndividualCount - typeLevelBookedCount,
+          );
+        } else {
+          // No individual room records were found for this type.
+          // Calculate from the room type's configured inventory.
+          const bookedCount = activeBookings.reduce((total, booking) => {
+            const values = getBookingTypeValues(booking);
+            const matchesType =
+              values.includes(normalize(roomType.id)) ||
+              values.includes(normalize(roomType.name)) ||
+              normalize(booking.roomId) === normalize(roomType.id);
+
+            return matchesType ? total + getBookingQuantity(booking) : total;
+          }, 0);
+
+          availableCount = Math.max(0, roomType.count - bookedCount);
+        }
+
+        return {
+          ...roomType,
+          availableCount,
+        };
+      })
+      .filter(
+        (room) =>
+          room.availableCount! > 0 &&
+          (!hasAvailabilityParam || availableIds.has(room.id.toLowerCase())),
       );
-
-      const remaining = Math.max(0, room.count - bookedCount);
-
-      return (
-        remaining > 0 && (!hasAvailabilityParam || availableIds.has(room.id))
-      );
-    });
   }, [
     rooms,
     bookings,
+    individualRooms,
     hasValidDateRange,
     requestedCheckIn,
     requestedCheckOut,
@@ -189,6 +457,7 @@ export default function Rooms() {
   ]);
 
   const searchText = search.toLowerCase();
+
   const categories = [
     "All",
     ...Array.from(new Set(roomsWithAvailability.map((room) => room.name))),
@@ -209,68 +478,6 @@ export default function Rooms() {
     return matchSearch && matchCategory && matchPrice && matchCapacity;
   });
 
-  useEffect(() => {
-    const loadRooms = async () => {
-      try {
-        setLoading(true);
-
-        const [roomTypesResult, bookingsResult] = await Promise.allSettled([
-          getDocs(collection(db, "roomTypes")),
-          getDocs(collection(customerDb, "Bookings")),
-        ]);
-
-        if (roomTypesResult.status === "rejected") {
-          console.error(
-            "Failed to load admin roomTypes:",
-            roomTypesResult.reason,
-          );
-          throw roomTypesResult.reason;
-        }
-
-        const roomData: RoomType[] = roomTypesResult.value.docs.map((doc) => {
-          const data = doc.data();
-
-          return {
-            id: doc.id,
-            name: data.name || "",
-            count: Number(data.count ?? data.quantity ?? data.totalRooms ?? 0),
-            amenities: Array.isArray(data.amenities) ? data.amenities : [],
-            maxGuests: Number(data.maxGuests ?? data.capacity ?? 1),
-            basePrice: Number(data.basePrice ?? data.price ?? 0),
-            image: data.image || "",
-          };
-        });
-
-        setRooms(roomData);
-
-        if (bookingsResult.status === "fulfilled") {
-          const bookingData: Booking[] = bookingsResult.value.docs.map(
-            (doc) => ({
-              id: doc.id,
-              ...doc.data(),
-            }),
-          );
-          setBookings(bookingData);
-        } else {
-          console.error(
-            "Failed to load customer Bookings:",
-            bookingsResult.reason,
-          );
-
-          if (hasValidDateRange) {
-            setBookings([]);
-          }
-        }
-      } catch (error) {
-        console.error("Error loading rooms:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadRooms();
-  }, [hasValidDateRange]);
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <div className="mb-8">
@@ -284,10 +491,12 @@ export default function Rooms() {
         >
           Our Accommodations
         </h1>
+
         <p className="text-muted-foreground text-sm mt-1">
-          {filtered.length} room{filtered.length !== 1 ? "s" : ""} available ·
-          Sabang, Puerto
+          {filtered.length} room type
+          {filtered.length !== 1 ? "s" : ""} available · Sabang, Puerto
         </p>
+
         {hasValidDateRange && (
           <p className="text-muted-foreground text-xs mt-1">
             Showing room types available for {dateOnly(requestedCheckIn!)} to{" "}
@@ -309,12 +518,15 @@ export default function Rooms() {
           </button>
 
           <div
-            className={`${filterOpen ? "block" : "hidden"} lg:block bg-white rounded-2xl border border-border p-5 space-y-6`}
+            className={`${
+              filterOpen ? "block" : "hidden"
+            } lg:block bg-white rounded-2xl border border-border p-5 space-y-6`}
           >
             <div>
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">
                 Search
               </label>
+
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
@@ -331,6 +543,7 @@ export default function Rooms() {
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">
                 Room Type
               </label>
+
               <div className="space-y-1.5">
                 {categories.map((cat) => (
                   <button
@@ -352,6 +565,7 @@ export default function Rooms() {
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">
                 Max Price: ₱{maxPrice.toLocaleString()}/night
               </label>
+
               <input
                 type="range"
                 min={0}
@@ -361,6 +575,7 @@ export default function Rooms() {
                 onChange={(e) => setMaxPrice(Number(e.target.value))}
                 className="w-full accent-primary"
               />
+
               <div className="flex justify-between text-xs text-muted-foreground mt-1">
                 <span>0</span>
                 <span>₱50,000</span>
@@ -369,8 +584,10 @@ export default function Rooms() {
 
             <div>
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">
-                Min. Capacity: {minCapacity} guest{minCapacity > 1 ? "s" : ""}
+                Min. Capacity: {minCapacity} guest
+                {minCapacity > 1 ? "s" : ""}
               </label>
+
               <input
                 type="range"
                 min={1}
@@ -379,6 +596,7 @@ export default function Rooms() {
                 onChange={(e) => setMinCapacity(Number(e.target.value))}
                 className="w-full accent-primary"
               />
+
               <div className="flex justify-between text-xs text-muted-foreground mt-1">
                 <span>1</span>
                 <span>6</span>
@@ -389,7 +607,7 @@ export default function Rooms() {
               onClick={() => {
                 setSearch("");
                 setCategory("All");
-                setMaxPrice(15000);
+                setMaxPrice(50000);
                 setMinCapacity(1);
               }}
               className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors underline"
@@ -407,11 +625,13 @@ export default function Rooms() {
           ) : filtered.length === 0 ? (
             <div className="text-center py-20 text-muted-foreground">
               <div className="text-4xl mb-3">🏖️</div>
+
               <p className="font-medium text-foreground">
                 {hasValidDateRange
                   ? "No rooms available for these dates"
                   : "No rooms match your filters"}
               </p>
+
               <p className="text-sm mt-1">
                 {hasValidDateRange
                   ? "Try different check-in or check-out dates"
@@ -432,6 +652,8 @@ export default function Rooms() {
 }
 
 function RoomCard({ room }: { room: RoomType }) {
+  const displayCount = room.availableCount ?? room.count;
+
   return (
     <div className="bg-white rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-lg transition-all duration-300 group">
       <div className="relative h-52 overflow-hidden">
@@ -474,8 +696,8 @@ function RoomCard({ room }: { room: RoomType }) {
           </span>
 
           <span>
-            {room.count} room
-            {room.count !== 1 ? "s" : ""}
+            {displayCount} room
+            {displayCount !== 1 ? "s" : ""}
           </span>
         </div>
 
