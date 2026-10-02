@@ -11,8 +11,16 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { doc, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  doc,
+  updateDoc,
+  onSnapshot,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 import { auth, customerDb } from "../components/firebase";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -43,35 +51,171 @@ function BookingHistoryContent() {
   >("all");
   const [cancelTarget, setCancelTarget] = useState<string | null>(null);
   const [modifyTarget, setModifyTarget] = useState<Booking | null>(null);
-  const [modifyDates, setModifyDates] = useState({ checkIn: "", checkOut: "" });
+  const [modifyDates, setModifyDates] = useState({
+    checkIn: "",
+    checkOut: "",
+  });
   const [modifySuccess, setModifySuccess] = useState(false);
 
   const filtered =
     filter === "all" ? bookings : bookings.filter((b) => b.status === filter);
 
+  // Listen for booking and payment status changes in real time.
+  // Notifications are created by the customer while signed in.
   useEffect(() => {
-    const loadBookings = async () => {
-      const user = auth.currentUser;
+    const currentUser = auth.currentUser;
 
-      if (!user) return;
+    if (!user || !currentUser) {
+      setBookings([]);
+      return;
+    }
 
-      const q = query(
-        collection(customerDb, "Bookings"),
-        where("userId", "==", user.uid),
-      );
+    const customerUid = currentUser.uid;
 
-      const snapshot = await getDocs(q);
+    // Avoid accidentally listening as a different account than
+    // the one represented by the app context.
+    if (user.id && user.id !== customerUid) {
+      console.error("Booking History user does not match auth.currentUser.");
+      setBookings([]);
+      return;
+    }
 
-      const bookingList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Booking[];
+    const q = query(
+      collection(customerDb, "Bookings"),
+      where("userId", "==", customerUid),
+    );
 
-      setBookings(bookingList);
+    const previousStatuses = new Map<
+      string,
+      { status: string; paymentStatus: string }
+    >();
+
+    let isFirstSnapshot = true;
+    let isActive = true;
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        if (!isActive) return;
+
+        const bookingList = snapshot.docs.map((bookingDoc) => ({
+          id: bookingDoc.id,
+          ...bookingDoc.data(),
+        })) as Booking[];
+
+        setBookings(bookingList);
+
+        // Initial snapshot only establishes the baseline.
+        // Do not notify for old statuses already in Firestore.
+        if (isFirstSnapshot) {
+          snapshot.docs.forEach((bookingDoc) => {
+            const data = bookingDoc.data();
+
+            previousStatuses.set(bookingDoc.id, {
+              status: data.status ?? "",
+              paymentStatus: data.paymentStatus ?? "",
+            });
+          });
+
+          isFirstSnapshot = false;
+          return;
+        }
+
+        snapshot.docChanges().forEach((change) => {
+          if (change.type !== "modified") return;
+
+          const bookingId = change.doc.id;
+          const data = change.doc.data();
+
+          const oldStatus = previousStatuses.get(bookingId);
+          const newStatus = {
+            status: data.status ?? "",
+            paymentStatus: data.paymentStatus ?? "",
+          };
+
+          // Update baseline immediately to prevent repeated attempts
+          // when more snapshots arrive.
+          previousStatuses.set(bookingId, newStatus);
+
+          if (!oldStatus) return;
+
+          const bookingRef = data.bookingRef || bookingId;
+          const roomName = data.roomName || "your reservation";
+
+          const notifications: {
+            type: string;
+            title: string;
+            message: string;
+          }[] = [];
+
+          if (oldStatus.status !== newStatus.status) {
+            if (newStatus.status === "confirmed") {
+              notifications.push({
+                type: "booking",
+                title: "Booking Confirmed",
+                message: `Your booking ${bookingRef} for ${roomName} has been confirmed.`,
+              });
+            } else if (newStatus.status === "cancelled") {
+              notifications.push({
+                type: "booking",
+                title: "Booking Cancelled",
+                message: `Your booking ${bookingRef} for ${roomName} has been cancelled.`,
+              });
+            } else if (newStatus.status === "completed") {
+              notifications.push({
+                type: "booking",
+                title: "Stay Completed",
+                message: `Your stay for booking ${bookingRef} has been marked as completed.`,
+              });
+            }
+          }
+
+          if (oldStatus.paymentStatus !== newStatus.paymentStatus) {
+            if (newStatus.paymentStatus === "paid") {
+              notifications.push({
+                type: "payment",
+                title: "Payment Confirmed",
+                message: `Your payment for booking ${bookingRef} has been marked as paid.`,
+              });
+            } else if (newStatus.paymentStatus === "partial") {
+              notifications.push({
+                type: "payment",
+                title: "Partial Payment Received",
+                message: `A partial payment for booking ${bookingRef} has been recorded.`,
+              });
+            }
+          }
+
+          for (const notification of notifications) {
+            // Check active state before starting the write.
+            if (!isActive) return;
+
+            addDoc(collection(customerDb, "Notifications"), {
+              userId: customerUid,
+              role: "customer",
+              bookingId,
+              type: notification.type,
+              title: notification.title,
+              message: notification.message,
+              targetPath: `/booking-confirmation/${bookingId}`,
+              read: false,
+              createdAt: serverTimestamp(),
+            }).catch((error) => {
+              console.error("Could not create customer notification:", error);
+            });
+          }
+        });
+      },
+      (error) => {
+        console.error("Booking listener error:", error);
+      },
+    );
+
+    return () => {
+      isActive = false;
+      unsubscribe();
     };
-
-    loadBookings();
-  }, []);
+  }, [user]);
 
   const handleCancel = async (id: string) => {
     try {
@@ -161,9 +305,11 @@ function BookingHistoryContent() {
   const totalSpent = bookings
     .filter((b) => b.paymentStatus === "paid")
     .reduce((s, b) => s + b.totalPrice, 0);
+
   const upcoming = bookings.filter(
     (b) => b.status === "confirmed" && new Date(b.checkIn) >= new Date(),
   ).length;
+
   const completed = bookings.filter((b) => b.status === "completed").length;
 
   return (
@@ -293,14 +439,18 @@ function BookingHistoryContent() {
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <span
-                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColors[booking.status]}`}
+                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                          statusColors[booking.status] ||
+                          "bg-gray-100 text-gray-700"
+                        }`}
                       >
                         {booking.status.charAt(0).toUpperCase() +
                           booking.status.slice(1)}
                       </span>
                       <span
                         className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                          paymentColors[booking.paymentStatus]
+                          paymentColors[booking.paymentStatus] ||
+                          "bg-gray-50 text-gray-600"
                         }`}
                       >
                         {booking.paymentStatus.charAt(0).toUpperCase() +
