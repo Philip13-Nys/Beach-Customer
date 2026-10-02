@@ -16,6 +16,7 @@ import {
   addDoc,
   query,
   orderBy,
+  where,
   onSnapshot,
   serverTimestamp,
   Timestamp,
@@ -29,6 +30,7 @@ interface Reply {
   message: string;
   createdAt: Timestamp | null;
 }
+
 interface Inquiry {
   id: string;
   userId: string;
@@ -66,6 +68,8 @@ const FAQS = [
 
 export default function Inquiries() {
   const { user } = useApp();
+  const uid = user?.id;
+
   const [tab, setTab] = useState<"chat" | "form" | "faq">("form");
   const [input, setInput] = useState("");
   const [formData, setFormData] = useState({
@@ -86,71 +90,24 @@ export default function Inquiries() {
   const [sending, setSending] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Load only inquiries belonging to the signed-in customer.
   useEffect(() => {
-    if (!selectedInquiryId) {
-      return;
-    }
-
-    const repliesQuery = query(
-      collection(customerDb, "Inquiries", selectedInquiryId, "replies"),
-      orderBy("createdAt", "asc"),
-    );
-
-    const unsubscribe = onSnapshot(
-      repliesQuery,
-      (snapshot) => {
-        const replies: Reply[] = snapshot.docs.map((replyDoc) => {
-          const data = replyDoc.data();
-
-          return {
-            id: replyDoc.id,
-            sender:
-              data.sender === "receptionist" ? "receptionist" : "customer",
-            message: String(data.message || ""),
-            createdAt: data.createdAt || null,
-          };
-        });
-
-        setInquiries((current) =>
-          current.map((inquiry) =>
-            inquiry.id === selectedInquiryId
-              ? {
-                  ...inquiry,
-                  replies,
-                }
-              : inquiry,
-          ),
-        );
-      },
-      (error) => {
-        console.error("Error loading replies:", error);
-      },
-    );
-
-    return () => unsubscribe();
-  }, [selectedInquiryId]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    setFormData((prev) => ({
-      ...prev,
-      name: `${user.firstName} ${user.lastName}`.trim(),
-      email: user.email,
-    }));
-  }, [user]);
-
-  useEffect(() => {
-    if (!user?.id) {
+    if (!uid) {
       setInquiries([]);
+      setSelectedInquiryId(null);
       setLoadingInquiries(false);
+      setInput("");
       return;
     }
 
     setLoadingInquiries(true);
+    setInquiries([]);
+    setSelectedInquiryId(null);
+    setInput("");
 
     const inquiriesQuery = query(
       collection(customerDb, "Inquiries"),
+      where("userId", "==", uid),
       orderBy("createdAt", "desc"),
     );
 
@@ -189,15 +146,88 @@ export default function Inquiries() {
       },
       (error) => {
         console.error("Error loading customer inquiries:", error);
+        setInquiries([]);
+        setSelectedInquiryId(null);
         setLoadingInquiries(false);
       },
     );
 
     return () => unsubscribe();
-  }, [user?.id]);
+  }, [uid]);
+
+  // Keep the customer's profile details in the form.
+  useEffect(() => {
+    if (!user) {
+      setFormData((prev) => ({
+        ...prev,
+        name: "",
+        email: "",
+      }));
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+      email: user.email || "",
+    }));
+  }, [user]);
 
   const selectedInquiry =
-    inquiries.find((inquiry) => inquiry.id === selectedInquiryId) || null;
+    inquiries.find(
+      (inquiry) => inquiry.id === selectedInquiryId && inquiry.userId === uid,
+    ) || null;
+
+  // Listen to replies only for the selected inquiry, after confirming
+  // that it belongs to the current customer.
+  useEffect(() => {
+    if (!uid || !selectedInquiryId) {
+      return;
+    }
+
+    const ownsSelectedInquiry = inquiries.some(
+      (inquiry) => inquiry.id === selectedInquiryId && inquiry.userId === uid,
+    );
+
+    if (!ownsSelectedInquiry) {
+      return;
+    }
+
+    const repliesQuery = query(
+      collection(customerDb, "Inquiries", selectedInquiryId, "replies"),
+      orderBy("createdAt", "asc"),
+    );
+
+    const unsubscribe = onSnapshot(
+      repliesQuery,
+      (snapshot) => {
+        const replies: Reply[] = snapshot.docs.map((replyDoc) => {
+          const data = replyDoc.data();
+
+          return {
+            id: replyDoc.id,
+            sender:
+              data.sender === "receptionist" ? "receptionist" : "customer",
+            message: String(data.message || ""),
+            createdAt: data.createdAt || null,
+          };
+        });
+
+        setInquiries((current) =>
+          current.map((inquiry) =>
+            inquiry.id === selectedInquiryId && inquiry.userId === uid
+              ? { ...inquiry, replies }
+              : inquiry,
+          ),
+        );
+      },
+      (error) => {
+        console.error("Error loading replies:", error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [uid, selectedInquiryId, inquiries.length]);
 
   useEffect(() => {
     if (tab === "chat") {
@@ -210,7 +240,7 @@ export default function Inquiries() {
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!user?.id) {
+    if (!uid) {
       alert("Please log in before sending an inquiry.");
       return;
     }
@@ -224,23 +254,17 @@ export default function Inquiries() {
       setSending(true);
 
       const inquiryRef = await addDoc(collection(customerDb, "Inquiries"), {
-        userId: user.id,
-
+        userId: uid,
         name: formData.name.trim(),
         email: formData.email.trim(),
-
-        subject: formData.subject,
+        subject: formData.subject.trim(),
         message: formData.message.trim(),
-
         status: "new",
-
         createdAt: serverTimestamp(),
-
         replies: [],
       });
 
       setSelectedInquiryId(inquiryRef.id);
-
       setFormSent(true);
 
       setFormData((prev) => ({
@@ -251,7 +275,7 @@ export default function Inquiries() {
 
       setTab("chat");
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         setFormSent(false);
       }, 5000);
     } catch (error) {
@@ -270,13 +294,13 @@ export default function Inquiries() {
   const sendChat = async () => {
     if (!input.trim()) return;
 
-    if (!selectedInquiry) {
-      alert("Please send an inquiry first.");
+    if (!uid) {
+      alert("Please log in first.");
       return;
     }
 
-    if (!user?.id) {
-      alert("Please log in first.");
+    if (!selectedInquiry || selectedInquiry.userId !== uid) {
+      alert("Please select one of your inquiries first.");
       return;
     }
 
@@ -289,7 +313,7 @@ export default function Inquiries() {
           `${user?.firstName || ""} ${user?.lastName || ""}`.trim() ||
           "Customer",
         message: input.trim(),
-        userId: user.id,
+        userId: uid,
         createdAt: serverTimestamp(),
       };
 
@@ -331,7 +355,6 @@ export default function Inquiries() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* CONTACT INFORMATION */}
-
         <div className="space-y-4">
           <div className="bg-primary rounded-2xl p-5 text-white">
             <h2
@@ -369,11 +392,9 @@ export default function Inquiries() {
 
                   <div>
                     <div className="text-xs text-white/60">{item.label}</div>
-
                     <div className="text-sm font-medium text-white">
                       {item.value}
                     </div>
-
                     <div className="text-xs text-white/50">{item.sub}</div>
                   </div>
                 </div>
@@ -392,7 +413,6 @@ export default function Inquiries() {
             <div className="bg-muted rounded-xl overflow-hidden h-40 flex items-center justify-center text-muted-foreground text-sm">
               <div className="text-center">
                 <MapPin className="w-8 h-8 mx-auto mb-2 text-primary" />
-
                 <p className="text-xs">Sabang, Puerto</p>
               </div>
             </div>
@@ -400,10 +420,8 @@ export default function Inquiries() {
         </div>
 
         {/* RIGHT SIDE */}
-
         <div className="lg:col-span-2">
           {/* TABS */}
-
           <div className="flex gap-1 bg-muted p-1 rounded-xl mb-5">
             {[
               { id: "form", label: "📩 Message Us" },
@@ -425,7 +443,6 @@ export default function Inquiries() {
           </div>
 
           {/* FORM */}
-
           {tab === "form" && (
             <div className="bg-white rounded-2xl border border-border p-5">
               {formSent ? (
@@ -540,7 +557,6 @@ export default function Inquiries() {
                     className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <Send className="w-4 h-4" />
-
                     {sending ? "Sending..." : "Send Message"}
                   </button>
                 </form>
@@ -549,7 +565,6 @@ export default function Inquiries() {
           )}
 
           {/* CHAT */}
-
           {tab === "chat" && (
             <div
               className="bg-white rounded-2xl border border-border flex flex-col"
@@ -564,7 +579,6 @@ export default function Inquiries() {
                   <div className="text-sm font-semibold text-foreground">
                     Resort Reception
                   </div>
-
                   <div className="text-xs text-muted-foreground">
                     Your inquiry conversation
                   </div>
@@ -572,7 +586,6 @@ export default function Inquiries() {
               </div>
 
               {/* INQUIRY SELECTOR */}
-
               <div className="p-3 border-b border-border">
                 {loadingInquiries ? (
                   <p className="text-xs text-muted-foreground">
@@ -598,13 +611,11 @@ export default function Inquiries() {
               </div>
 
               {/* MESSAGES */}
-
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {!selectedInquiry ? (
                   <div className="h-full flex items-center justify-center text-center">
                     <div>
                       <MessageCircle className="w-10 h-10 mx-auto mb-2 text-muted-foreground opacity-40" />
-
                       <p className="text-sm text-muted-foreground">
                         No conversation selected.
                       </p>
@@ -612,8 +623,6 @@ export default function Inquiries() {
                   </div>
                 ) : (
                   <>
-                    {/* ORIGINAL CUSTOMER MESSAGE */}
-
                     <div className="flex justify-end">
                       <div className="max-w-xs">
                         <div className="bg-primary text-white px-3 py-2 rounded-2xl rounded-br-sm text-xs">
@@ -625,8 +634,6 @@ export default function Inquiries() {
                         </div>
                       </div>
                     </div>
-
-                    {/* REPLIES */}
 
                     {selectedInquiry.replies.map((reply) => (
                       <div
@@ -680,7 +687,6 @@ export default function Inquiries() {
               </div>
 
               {/* REPLY BOX */}
-
               <div className="p-3 border-t border-border flex gap-2">
                 <input
                   type="text"
@@ -712,7 +718,6 @@ export default function Inquiries() {
           )}
 
           {/* FAQ */}
-
           {tab === "faq" && (
             <div className="space-y-3">
               {FAQS.map((faq, i) => (
