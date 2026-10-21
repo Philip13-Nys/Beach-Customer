@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, limit } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { customerDb, db } from "../components/firebase";
 import {
   Star,
@@ -46,6 +46,8 @@ interface Service {
 
 interface Review {
   id: string;
+  bookingId?: string;
+  bookingRef?: string;
   guestName: string;
   guestAvatar?: string;
   roomName?: string;
@@ -53,33 +55,44 @@ interface Review {
   rating: number;
   comment: string;
   date: string;
+  status?: string;
 }
 
 interface FirestoreRoom {
   id: string;
-  roomTypeId?: any;
-  typeId?: any;
-  roomType?: any;
+  roomTypeId?: unknown;
+  typeId?: unknown;
+  roomType?: unknown;
   roomTypeName?: string;
-  type?: any;
+  typeName?: string;
+  type?: unknown;
+  name?: string;
   status?: string;
   isAvailable?: boolean;
+  [key: string]: unknown;
 }
 
 interface FirestoreBooking {
   id: string;
-  roomTypeId?: any;
-  typeId?: any;
-  roomType?: any;
+  roomTypeId?: unknown;
+  typeId?: unknown;
+  roomType?: unknown;
   roomTypeName?: string;
   roomName?: string;
-  room?: any;
+  room?: unknown;
+  type?: unknown;
   roomQuantity?: number;
   roomsBooked?: number;
   quantity?: number;
-  checkIn?: any;
-  checkOut?: any;
+  checkIn?: unknown;
+  checkOut?: unknown;
+  bookingDate?: unknown;
+  bookingType?: string;
+  itemType?: string;
+  serviceId?: string;
+  packageId?: string;
   status?: string;
+  [key: string]: unknown;
 }
 
 function StarRating({ rating }: { rating: number }) {
@@ -99,26 +112,70 @@ function StarRating({ rating }: { rating: number }) {
   );
 }
 
-const toLocalDateString = (date: Date) => {
+const getRoomReviewStats = (
+  room: Room,
+  reviews: Review[],
+): { averageRating: number; reviewCount: number } => {
+  const roomReviews = reviews.filter((review) => {
+    const reviewedRoomName = (review.roomName || "").trim().toLowerCase();
+    const currentRoomName = room.name.trim().toLowerCase();
+
+    return reviewedRoomName === currentRoomName;
+  });
+
+  const validRatings = roomReviews
+    .map((review) => Number(review.rating))
+    .filter((rating) => Number.isFinite(rating) && rating >= 1 && rating <= 5);
+
+  return {
+    averageRating:
+      validRatings.length > 0
+        ? validRatings.reduce((sum, rating) => sum + rating, 0) /
+          validRatings.length
+        : 0,
+    reviewCount: validRatings.length,
+  };
+};
+
+const toLocalDateString = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
+
   return `${year}-${month}-${day}`;
 };
 
-const getDateOnly = (value: any): string => {
+const getDateOnly = (value: unknown): string => {
   if (!value) return "";
 
   if (typeof value === "string") {
-    return value.slice(0, 10);
-  }
-
-  if (value?.toDate && typeof value.toDate === "function") {
-    return toLocalDateString(value.toDate());
+    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    return match ? match[1] : "";
   }
 
   if (value instanceof Date) {
-    return toLocalDateString(value);
+    return Number.isNaN(value.getTime()) ? "" : toLocalDateString(value);
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const timestamp = value as {
+      toDate?: () => Date;
+      seconds?: number;
+      _seconds?: number;
+    };
+
+    if (typeof timestamp.toDate === "function") {
+      const date = timestamp.toDate();
+      return date instanceof Date && !Number.isNaN(date.getTime())
+        ? toLocalDateString(date)
+        : "";
+    }
+
+    const seconds = timestamp.seconds ?? timestamp._seconds;
+
+    if (typeof seconds === "number") {
+      return toLocalDateString(new Date(seconds * 1000));
+    }
   }
 
   return "";
@@ -148,6 +205,7 @@ const normalize = (value: unknown): string => {
         obj.typeId ??
         obj.name ??
         obj.roomTypeName ??
+        obj.typeName ??
         obj.value,
     );
   }
@@ -156,9 +214,11 @@ const normalize = (value: unknown): string => {
 };
 
 const isCancelledBooking = (status = "") =>
-  ["cancelled", "canceled", "rejected", "declined"].includes(normalize(status));
+  ["cancelled", "canceled", "rejected", "declined", "void", "deleted"].includes(
+    normalize(status),
+  );
 
-const isRoomBookable = (room: FirestoreRoom) => {
+const isRoomBookable = (room: FirestoreRoom): boolean => {
   if (room.isAvailable === false) return false;
 
   const status = normalize(room.status);
@@ -168,18 +228,36 @@ const isRoomBookable = (room: FirestoreRoom) => {
     "inactive",
     "deleted",
     "unavailable",
-    "occupied",
-    "reserved",
     "out of service",
     "out-of-service",
   ].includes(status);
 };
 
-const getRoomTypeKeys = (roomType: Room) => {
-  return [roomType.id, roomType.name].map(normalize).filter(Boolean);
+const isRoomBooking = (booking: FirestoreBooking): boolean => {
+  const type = normalize(booking.bookingType || booking.itemType);
+
+  if (
+    ["service", "package", "activity"].includes(type) ||
+    booking.serviceId ||
+    booking.packageId
+  ) {
+    return false;
+  }
+
+  if (booking.bookingDate && !booking.checkIn && !booking.checkOut) {
+    return false;
+  }
+
+  return Boolean(booking.checkIn && booking.checkOut);
 };
 
-const matchesRoomType = (record: Record<string, any>, roomType: Room) => {
+const getRoomTypeKeys = (roomType: Room): string[] =>
+  [roomType.id, roomType.name].map(normalize).filter(Boolean);
+
+const matchesRoomType = (
+  record: Record<string, unknown>,
+  roomType: Room,
+): boolean => {
   const keys = getRoomTypeKeys(roomType);
 
   const values = [
@@ -187,8 +265,10 @@ const matchesRoomType = (record: Record<string, any>, roomType: Room) => {
     record.typeId,
     record.roomType,
     record.roomTypeName,
+    record.typeName,
     record.roomName,
     record.room,
+    record.type,
   ]
     .map(normalize)
     .filter(Boolean);
@@ -196,7 +276,10 @@ const matchesRoomType = (record: Record<string, any>, roomType: Room) => {
   return values.some((value) => keys.includes(value));
 };
 
-const getInventoryCount = (roomType: Room, inventoryRooms: FirestoreRoom[]) => {
+const getInventoryCount = (
+  roomType: Room,
+  inventoryRooms: FirestoreRoom[],
+): number => {
   const matchingRooms = inventoryRooms.filter((room) =>
     matchesRoomType(room, roomType),
   );
@@ -216,9 +299,13 @@ const getBookedCount = (
   roomType: Room,
   bookings: FirestoreBooking[],
   date: string,
-) => {
+): number => {
   return bookings.reduce((total, booking) => {
     if (isCancelledBooking(String(booking.status ?? ""))) {
+      return total;
+    }
+
+    if (!isRoomBooking(booking)) {
       return total;
     }
 
@@ -229,19 +316,106 @@ const getBookedCount = (
     const checkInDate = getDateOnly(booking.checkIn);
     const checkOutDate = getDateOnly(booking.checkOut);
 
-    if (!checkInDate || !checkOutDate) return total;
+    if (!checkInDate || !checkOutDate) {
+      return total;
+    }
 
     if (!(checkInDate <= date && checkOutDate > date)) {
       return total;
     }
 
-    const quantity = Number(
-      booking.roomQuantity ?? booking.roomsBooked ?? booking.quantity ?? 1,
-    );
+    const rawQuantity =
+      booking.roomQuantity ?? booking.roomsBooked ?? booking.quantity ?? 1;
 
-    return total + Math.max(1, quantity || 1);
+    const quantity = Number(rawQuantity);
+    const roomsBooked =
+      Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+
+    return total + roomsBooked;
   }, 0);
 };
+
+const isRoomTypeAvailableForStay = (
+  roomType: Room,
+  inventoryRooms: FirestoreRoom[],
+  bookings: FirestoreBooking[],
+  checkIn: string,
+  checkOut: string,
+  guestCount: number,
+): boolean => {
+  if (roomType.available === false) return false;
+
+  if (roomType.capacity > 0 && roomType.capacity < guestCount) {
+    return false;
+  }
+
+  const inventoryCount = getInventoryCount(roomType, inventoryRooms);
+
+  if (inventoryCount <= 0) return false;
+
+  const cursor = new Date(`${checkIn}T00:00:00`);
+  const end = new Date(`${checkOut}T00:00:00`);
+
+  if (
+    Number.isNaN(cursor.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    end <= cursor
+  ) {
+    return false;
+  }
+
+  while (cursor < end) {
+    const date = toLocalDateString(cursor);
+    const bookedCount = getBookedCount(roomType, bookings, date);
+
+    if (inventoryCount - bookedCount <= 0) {
+      return false;
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return true;
+};
+
+const mapRoomType = (id: string, data: Record<string, unknown>): Room => ({
+  id,
+  name: String(
+    data.name ?? data.roomTypeName ?? data.typeName ?? data.title ?? "",
+  ),
+  type: String(data.type ?? data.category ?? ""),
+  images: Array.isArray(data.images)
+    ? data.images.filter((image): image is string => typeof image === "string")
+    : [],
+  image: String(data.image ?? data.imageUrl ?? ""),
+  price: Number(data.basePrice ?? data.price ?? data.rate ?? 0),
+  capacity: Number(data.maxGuests ?? data.capacity ?? data.maxOccupancy ?? 0),
+  rating: Number(data.rating ?? 0),
+  reviews: Number(data.reviews ?? data.reviewCount ?? 0),
+  available: data.available !== false,
+  count: Number(data.count ?? data.quantity ?? data.totalRooms ?? 0),
+  quantity: Number(data.quantity ?? data.count ?? data.totalRooms ?? 0),
+  totalRooms: Number(data.totalRooms ?? data.count ?? data.quantity ?? 0),
+});
+
+const mapInventoryRoom = (
+  id: string,
+  data: Record<string, unknown>,
+): FirestoreRoom =>
+  ({
+    ...data,
+    id,
+  }) as FirestoreRoom;
+
+const mapBooking = (
+  id: string,
+  data: Record<string, unknown>,
+): FirestoreBooking =>
+  ({
+    ...data,
+    id,
+  }) as FirestoreBooking;
+
 export default function Landing() {
   const navigate = useNavigate();
 
@@ -255,17 +429,14 @@ export default function Landing() {
   });
 
   const [rooms, setRooms] = useState<Room[]>([]);
-
   const [availabilityRoomTypes, setAvailabilityRoomTypes] = useState<Room[]>(
     [],
   );
-
   const [services, setServices] = useState<Service[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [inventoryRooms, setInventoryRooms] = useState<FirestoreRoom[]>([]);
   const [bookings, setBookings] = useState<FirestoreBooking[]>([]);
 
-  const [loading, setLoading] = useState(true);
   const [calendarDataLoading, setCalendarDataLoading] = useState(true);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
@@ -285,50 +456,92 @@ export default function Landing() {
           bookingsSnapshot,
         ] = await Promise.all([
           getDocs(collection(db, "roomTypes")),
-          getDocs(query(collection(db, "services"), limit(6))),
-          getDocs(query(collection(db, "reviews"), limit(2))),
-
+          getDocs(collection(db, "services")),
+          getDocs(
+            query(
+              collection(customerDb, "reviews"),
+              where("status", "==", "published"),
+            ),
+          ),
           getDocs(collection(db, "rooms")),
-
           getDocs(collection(customerDb, "Bookings")),
         ]);
 
         if (!isMounted) return;
 
-        const allRoomTypes = roomTypesSnapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        })) as Room[];
+        const allRoomTypes = roomTypesSnapshot.docs.map((docSnap) =>
+          mapRoomType(docSnap.id, docSnap.data() as Record<string, unknown>),
+        );
 
         setAvailabilityRoomTypes(allRoomTypes);
         setRooms(allRoomTypes.slice(0, 6));
 
         setServices(
           servicesSnapshot.docs.map((docSnap) => ({
-            id: docSnap.id,
             ...docSnap.data(),
+            id: docSnap.id,
           })) as Service[],
         );
 
         setReviews(
-          reviewsSnapshot.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...docSnap.data(),
-          })) as Review[],
+          reviewsSnapshot.docs
+            .map((docSnap) => {
+              const data = docSnap.data();
+
+              const createdAt = data.createdAt;
+              const reviewDate =
+                typeof data.date === "string"
+                  ? data.date
+                  : createdAt &&
+                      typeof createdAt === "object" &&
+                      "toDate" in createdAt &&
+                      typeof createdAt.toDate === "function"
+                    ? createdAt.toDate().toISOString()
+                    : "";
+
+              return {
+                ...data,
+                id: docSnap.id,
+                guestName: String(data.guestName ?? "Guest"),
+                guestAvatar:
+                  typeof data.guestAvatar === "string"
+                    ? data.guestAvatar
+                    : undefined,
+                roomName:
+                  typeof data.roomName === "string" ? data.roomName : undefined,
+                serviceName:
+                  typeof data.serviceName === "string"
+                    ? data.serviceName
+                    : undefined,
+                rating: Number(data.rating ?? 0),
+                comment: String(data.comment ?? ""),
+                date: reviewDate,
+                sortDate:
+                  createdAt &&
+                  typeof createdAt === "object" &&
+                  "toDate" in createdAt &&
+                  typeof createdAt.toDate === "function"
+                    ? createdAt.toDate().getTime()
+                    : Date.parse(reviewDate) || 0,
+              };
+            })
+            .sort((a, b) => b.sortDate - a.sortDate)
+            .map(({ sortDate, ...review }) => review) as Review[],
         );
 
         setInventoryRooms(
-          inventorySnapshot.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...docSnap.data(),
-          })) as FirestoreRoom[],
+          inventorySnapshot.docs.map((docSnap) =>
+            mapInventoryRoom(
+              docSnap.id,
+              docSnap.data() as Record<string, unknown>,
+            ),
+          ),
         );
 
         setBookings(
-          bookingsSnapshot.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...docSnap.data(),
-          })) as FirestoreBooking[],
+          bookingsSnapshot.docs.map((docSnap) =>
+            mapBooking(docSnap.id, docSnap.data() as Record<string, unknown>),
+          ),
         );
       } catch (error) {
         console.error("Error loading landing page data:", error);
@@ -338,13 +551,12 @@ export default function Landing() {
         }
       } finally {
         if (isMounted) {
-          setLoading(false);
           setCalendarDataLoading(false);
         }
       }
     };
 
-    loadLandingData();
+    void loadLandingData();
 
     return () => {
       isMounted = false;
@@ -353,12 +565,23 @@ export default function Landing() {
 
   const changeCalendarMonth = (amount: number) => {
     setCalendarMonth((current) => {
-      return new Date(current.getFullYear(), current.getMonth() + amount, 1);
+      const nextMonth = new Date(
+        current.getFullYear(),
+        current.getMonth() + amount,
+        1,
+      );
+
+      const now = new Date();
+      const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      return nextMonth < currentMonth ? currentMonth : nextMonth;
     });
   };
 
   const handleSelectDate = (dateString: string) => {
     setAvailabilityError("");
+
+    if (dateString < todayString) return;
 
     if (!checkIn || (checkIn && checkOut)) {
       setCheckIn(dateString);
@@ -381,18 +604,6 @@ export default function Landing() {
     month: "long",
     year: "numeric",
   });
-
-  const getAvailableTypeCount = (dateString: string) => {
-    return availabilityRoomTypes.filter((roomType) => {
-      const inventoryCount = getInventoryCount(roomType, inventoryRooms);
-
-      if (inventoryCount <= 0) return false;
-
-      const bookedCount = getBookedCount(roomType, bookings, dateString);
-
-      return inventoryCount - bookedCount > 0;
-    }).length;
-  };
 
   const handleSearch = async () => {
     setAvailabilityError("");
@@ -422,57 +633,36 @@ export default function Landing() {
           getDocs(collection(customerDb, "Bookings")),
         ]);
 
-      const currentRoomTypes = roomTypesSnapshot.docs.map((docSnap) => {
-        const data = docSnap.data();
-        return {
-          id: docSnap.id,
-          ...data,
-          // Use the same Firestore field mapping during a fresh search.
-          price: Number(data.basePrice ?? data.price ?? 0),
-          capacity: Number(data.maxGuests ?? data.capacity ?? 0),
-          count: Number(data.count ?? data.quantity ?? data.totalRooms ?? 0),
-        };
-      }) as Room[];
+      const currentRoomTypes = roomTypesSnapshot.docs.map((docSnap) =>
+        mapRoomType(docSnap.id, docSnap.data() as Record<string, unknown>),
+      );
 
-      const currentInventory = inventorySnapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      })) as FirestoreRoom[];
+      const currentInventory = inventorySnapshot.docs.map((docSnap) =>
+        mapInventoryRoom(docSnap.id, docSnap.data() as Record<string, unknown>),
+      );
 
-      const currentBookings = bookingsSnapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      })) as FirestoreBooking[];
+      const currentBookings = bookingsSnapshot.docs.map((docSnap) =>
+        mapBooking(docSnap.id, docSnap.data() as Record<string, unknown>),
+      );
 
-      // Keep the calendar in sync with the latest Firestore data.
       setAvailabilityRoomTypes(currentRoomTypes);
       setInventoryRooms(currentInventory);
       setBookings(currentBookings);
 
+      const guestCount = Number(guests);
+
       const availableRoomTypeIds = currentRoomTypes
-        .filter((roomType) => {
-          const inventoryCount = getInventoryCount(roomType, currentInventory);
-
-          if (inventoryCount <= 0) return false;
-
-          const cursor = new Date(`${checkIn}T00:00:00`);
-          const end = new Date(`${checkOut}T00:00:00`);
-
-          while (cursor < end) {
-            const date = toLocalDateString(cursor);
-
-            const bookedCount = getBookedCount(roomType, currentBookings, date);
-
-            if (inventoryCount - bookedCount <= 0) {
-              return false;
-            }
-
-            cursor.setDate(cursor.getDate() + 1);
-          }
-
-          return true;
-        })
-        .map((roomType) => String(roomType.id));
+        .filter((roomType) =>
+          isRoomTypeAvailableForStay(
+            roomType,
+            currentInventory,
+            currentBookings,
+            checkIn,
+            checkOut,
+            guestCount,
+          ),
+        )
+        .map((roomType) => roomType.id);
 
       if (availableRoomTypeIds.length === 0) {
         setAvailabilityError(
@@ -501,7 +691,6 @@ export default function Landing() {
 
   return (
     <div className="bg-background">
-      {/* Hero Section */}
       <section className="relative min-h-[92vh] flex items-center">
         <div
           className="absolute inset-0 bg-cover bg-center"
@@ -541,7 +730,6 @@ export default function Landing() {
               </p>
             </div>
 
-            {/* Reservation Card */}
             <div className="w-full max-w-xl lg:ml-auto">
               <div className="bg-white/95 backdrop-blur rounded-2xl p-4 sm:p-5 shadow-2xl">
                 <div className="flex items-center justify-between mb-4">
@@ -646,7 +834,6 @@ export default function Landing() {
                     </div>
                   </div>
 
-                  {/* Calendar */}
                   <div className="p-3 sm:p-4">
                     <div className="grid grid-cols-7 mb-2">
                       {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
@@ -688,8 +875,24 @@ export default function Landing() {
                           dateString < checkOut;
                         const isToday = dateString === todayString;
 
-                        const availableTypeCount =
-                          getAvailableTypeCount(dateString);
+                        const availableTypeCount = availabilityRoomTypes.filter(
+                          (roomType) => {
+                            if (
+                              roomType.capacity > 0 &&
+                              roomType.capacity < Number(guests)
+                            ) {
+                              return false;
+                            }
+
+                            return (
+                              roomType.available !== false &&
+                              getInventoryCount(roomType, inventoryRooms) -
+                                getBookedCount(roomType, bookings, dateString) >
+                                0
+                            );
+                          },
+                        ).length;
+
                         const isAvailable = availableTypeCount > 0;
 
                         return (
@@ -766,7 +969,6 @@ export default function Landing() {
                   </div>
                 </div>
 
-                {/* Guests */}
                 <div className="mt-4">
                   <label className="text-xs text-muted-foreground uppercase tracking-wider font-medium block mb-2">
                     Guests
@@ -815,15 +1017,57 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Stats bar */}
       <section className="bg-primary text-white py-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             {[
-              { value: "50+", label: "Dive Sites" },
-              { value: "6", label: "Room Types" },
-              { value: "2,000+", label: "Happy Guests" },
-              { value: "4.9★", label: "Average Rating" },
+              {
+                value: String(availabilityRoomTypes.length),
+                label: "Room Types",
+              },
+              {
+                value: String(services.length),
+                label: "Activities",
+              },
+              {
+                value: String(
+                  new Set(
+                    bookings
+                      .filter(
+                        (booking) =>
+                          !isCancelledBooking(String(booking.status ?? "")),
+                      )
+                      .map((booking) =>
+                        normalize(
+                          booking.userId ??
+                            booking.email ??
+                            booking.customerEmail,
+                        ),
+                      )
+                      .filter(Boolean),
+                  ).size,
+                ),
+                label: "Guests with Bookings",
+              },
+              {
+                value: (() => {
+                  const ratings = reviews
+                    .map((review) => Number(review.rating))
+                    .filter(
+                      (rating) =>
+                        Number.isFinite(rating) && rating >= 1 && rating <= 5,
+                    );
+
+                  if (ratings.length === 0) return "N/A";
+
+                  const average =
+                    ratings.reduce((sum, rating) => sum + rating, 0) /
+                    ratings.length;
+
+                  return `${average.toFixed(1)}★`;
+                })(),
+                label: "Average Guest Rating",
+              },
             ].map((stat) => (
               <div key={stat.label}>
                 <div
@@ -841,7 +1085,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Featured Rooms */}
       <section className="py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-end justify-between mb-10">
           <div>
@@ -874,6 +1117,11 @@ export default function Landing() {
               room.images?.[0] ||
               room.image ||
               "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800";
+
+            const { averageRating, reviewCount } = getRoomReviewStats(
+              room,
+              reviews,
+            );
 
             return (
               <Link
@@ -912,9 +1160,11 @@ export default function Landing() {
                   </h3>
 
                   <div className="flex items-center gap-2 mb-3 mt-2">
-                    <StarRating rating={room.rating || 0} />
+                    <StarRating rating={averageRating} />
                     <span className="text-xs text-muted-foreground">
-                      ({room.reviews || 0})
+                      {reviewCount > 0
+                        ? `${averageRating.toFixed(1)} (${reviewCount})`
+                        : "(0)"}
                     </span>
                   </div>
 
@@ -949,7 +1199,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Activities preview */}
       <section className="py-20 bg-primary/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-end justify-between mb-10">
@@ -1018,7 +1267,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Why choose us */}
       <section className="py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <p className="text-accent text-sm font-medium uppercase tracking-wider mb-2">
@@ -1079,7 +1327,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Reviews */}
       <section className="py-20 bg-primary text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
@@ -1156,7 +1403,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* AI Assistant teaser */}
       <section className="py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-gradient-to-br from-secondary to-white rounded-3xl p-8 md:p-12 flex flex-col md:flex-row items-center gap-8 border border-border">
           <div className="flex-1">
@@ -1229,7 +1475,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Contact section */}
       <section className="py-16 bg-muted">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2

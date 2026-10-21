@@ -17,8 +17,6 @@ import {
   getDoc,
   getDocs,
   serverTimestamp,
-  query,
-  where,
 } from "firebase/firestore";
 
 type RoomType = {
@@ -127,8 +125,6 @@ export default function BookingPage() {
       }
 
       try {
-        console.log("Loading room from ADMIN Firestore:", id);
-
         const roomRef = doc(db, "roomTypes", id);
         const roomSnap = await getDoc(roomRef);
 
@@ -174,12 +170,8 @@ export default function BookingPage() {
     });
   };
 
-  const checkRoomAvailability = async () => {
-    if (!room || !checkIn || !checkOut) {
-      return false;
-    }
-
-    if (checkOut <= checkIn) {
+  const checkRoomAvailability = async (): Promise<boolean> => {
+    if (!room || !checkIn || !checkOut || checkOut <= checkIn) {
       setAvailableRooms(0);
       return false;
     }
@@ -187,44 +179,158 @@ export default function BookingPage() {
     setCheckingAvailability(true);
 
     try {
-      const bookingsQuery = query(
-        collection(customerDb, "Bookings"),
-        where("roomId", "==", room.id),
-      );
+      const [roomsSnap, bookingsSnap, reservationsSnap] = await Promise.all([
+        getDocs(collection(db, "rooms")),
+        getDocs(collection(customerDb, "Bookings")),
+        getDocs(collection(db, "reservations")),
+      ]);
 
-      const bookingsSnap = await getDocs(bookingsQuery);
+      const normalize = (value: unknown): string =>
+        String(value ?? "")
+          .trim()
+          .toLowerCase();
 
-      let bookedRooms = 0;
+      const selectedRoomId = room.id.trim();
+      const selectedRoomName = normalize(room.name);
+
+      const matchesRoomType = (data: Record<string, any>): boolean => {
+        const ids = [data.roomTypeId, data.roomId, data.typeId]
+          .filter((value) => value !== undefined && value !== null)
+          .map((value) => String(value).trim());
+
+        const names = [
+          data.roomTypeName,
+          data.roomName,
+          data.roomType,
+          data.type,
+        ]
+          .filter(Boolean)
+          .map(normalize);
+
+        return ids.includes(selectedRoomId) || names.includes(selectedRoomName);
+      };
+
+      const physicalRooms = roomsSnap.docs.filter((roomDoc) => {
+        const data = roomDoc.data();
+
+        const typeName = normalize(
+          data.type ?? data.roomType ?? data.roomTypeName,
+        );
+
+        const typeId = String(data.roomTypeId ?? data.typeId ?? "").trim();
+
+        if (data.deleted === true || data.isActive === false) {
+          return false;
+        }
+
+        return typeName === selectedRoomName || typeId === selectedRoomId;
+      });
+
+      const totalRooms = physicalRooms.length;
+
+      const allBookings = new Map<string, Record<string, any>>();
 
       bookingsSnap.forEach((bookingDoc) => {
-        const booking = bookingDoc.data();
+        const data = bookingDoc.data();
 
-        if (booking.status === "cancelled") {
+        if (!matchesRoomType(data)) {
           return;
         }
 
-        const existingCheckIn = new Date(`${booking.checkIn}T00:00:00`);
-        const existingCheckOut = new Date(`${booking.checkOut}T00:00:00`);
-        const selectedCheckIn = new Date(`${checkIn}T00:00:00`);
-        const selectedCheckOut = new Date(`${checkOut}T00:00:00`);
+        allBookings.set(bookingDoc.id, {
+          ...data,
+          _id: bookingDoc.id,
+          _source: "Bookings",
+        });
+      });
 
-        const overlaps =
-          selectedCheckIn < existingCheckOut &&
-          selectedCheckOut > existingCheckIn;
+      reservationsSnap.forEach((reservationDoc) => {
+        const data = reservationDoc.data();
 
-        if (overlaps) {
-          bookedRooms++;
+        if (!matchesRoomType(data)) {
+          return;
+        }
+
+        const linkedBookingId = String(data.bookingId ?? "").trim();
+
+        if (linkedBookingId && allBookings.has(linkedBookingId)) {
+          return;
+        }
+
+        allBookings.set(linkedBookingId || `reservation-${reservationDoc.id}`, {
+          ...data,
+          _id: reservationDoc.id,
+          _source: "reservations",
+        });
+      });
+
+      const toDateNumber = (date: string): number => {
+        const [year, month, day] = date.split("-").map(Number);
+        return new Date(year, month - 1, day).getTime();
+      };
+
+      const requestedStart = toDateNumber(checkIn);
+      const requestedEnd = toDateNumber(checkOut);
+
+      const activeStatuses = new Set([
+        "pending",
+        "reserved",
+        "confirmed",
+        "approved",
+        "checked-in",
+        "checkedin",
+        "occupied",
+      ]);
+
+      let bookedRooms = 0;
+
+      allBookings.forEach((booking) => {
+        const status = normalize(booking.status);
+
+        if (!activeStatuses.has(status)) {
+          return;
+        }
+
+        if (!booking.checkIn || !booking.checkOut) {
+          return;
+        }
+
+        const bookingStart = toDateNumber(String(booking.checkIn).slice(0, 10));
+        const bookingEnd = toDateNumber(String(booking.checkOut).slice(0, 10));
+
+        if (
+          !Number.isFinite(bookingStart) ||
+          !Number.isFinite(bookingEnd) ||
+          bookingEnd <= bookingStart
+        ) {
+          return;
+        }
+
+        if (requestedStart < bookingEnd && requestedEnd > bookingStart) {
+          const requestedRoomCount = Number(
+            booking.roomCount ?? booking.numberOfRooms ?? 1,
+          );
+
+          const roomCount =
+            Number.isFinite(requestedRoomCount) && requestedRoomCount > 1
+              ? Math.floor(requestedRoomCount)
+              : 1;
+
+          bookedRooms += roomCount;
         }
       });
 
-      const remainingRooms = Math.max(0, room.count - bookedRooms);
+      const available = Math.max(
+        0,
+        totalRooms - Math.min(totalRooms, bookedRooms),
+      );
 
-      setAvailableRooms(remainingRooms);
-
-      return remainingRooms > 0;
+      setAvailableRooms(available);
+      return available > 0;
     } catch (error) {
       console.error("Availability check failed:", error);
-      alert("Unable to check room availability.");
+      setAvailableRooms(0);
+      alert("Unable to check room availability. Please try again.");
       return false;
     } finally {
       setCheckingAvailability(false);
@@ -353,8 +459,6 @@ export default function BookingPage() {
     }
 
     try {
-      console.log("Starting booking...");
-
       const userRef = doc(customerDb, "Users", currentUser.uid);
       const userSnap = await getDoc(userRef);
 
@@ -378,6 +482,7 @@ export default function BookingPage() {
         roomId: room.id,
         roomName: room.name,
         roomImage: room.image,
+        roomCount: 1,
         checkIn,
         checkOut,
         arrivalTime,
@@ -400,16 +505,11 @@ export default function BookingPage() {
         createdAt: serverTimestamp(),
       };
 
-      // Save the customer's booking first.
       const bookingDocRef = await addDoc(
         collection(customerDb, "Bookings"),
         bookingData,
       );
 
-      console.log("Customer booking created:", bookingDocRef.id);
-
-      // Create the notification only after the booking is saved.
-      // Notification failure must not undo the successful booking.
       try {
         await createNotification({
           eventId: `booking-created-${bookingDocRef.id}`,
@@ -418,17 +518,15 @@ export default function BookingPage() {
           message: `Your reservation for ${room.name} (${checkIn} – ${checkOut}) has been submitted. Ref: ${bookingData.bookingRef}`,
           targetPath: "/booking-history",
         });
-
-        console.log("Booking notification created successfully.");
       } catch (notificationError) {
         console.error("Booking notification failed:", notificationError);
       }
 
-      // Save the corresponding reservation in the admin database.
       const reservationData = {
         bookingId: bookingDocRef.id,
         roomTypeId: room.id,
         roomName: room.name,
+        roomCount: 1,
         checkIn,
         checkOut,
         arrivalTime,
@@ -440,12 +538,6 @@ export default function BookingPage() {
       };
 
       try {
-        const reservationRef = await addDoc(
-          collection(db, "reservations"),
-          reservationData,
-        );
-
-        console.log("Admin reservation created:", reservationRef.id);
       } catch (reservationError) {
         console.error("Admin reservation creation failed:", reservationError);
 
