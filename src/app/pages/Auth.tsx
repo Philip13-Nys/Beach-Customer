@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { useApp } from "../context/AppContext";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../components/firebase";
+import TermsModal from "../components/TermsModal";
 import {
   Eye,
   EyeOff,
@@ -18,6 +19,7 @@ export default function Auth() {
   const { user, login, register, googleLogin, googleRegister } = useApp();
 
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [showTerms, setShowTerms] = useState(false);
 
   const [params] = useSearchParams();
 
@@ -937,25 +939,17 @@ export default function Auth() {
                   className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
                 >
                   I agree to the{" "}
-                  <a
-                    href="/terms"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowTerms(true);
+                    }}
                     className="text-primary underline hover:text-accent"
-                    onClick={(e) => e.stopPropagation()}
                   >
                     Terms of Service
-                  </a>{" "}
-                  and{" "}
-                  <a
-                    href="/privacy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary underline hover:text-accent"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    Privacy Policy
-                  </a>
+                  </button>
                   .
                 </label>
               </div>
@@ -1025,6 +1019,8 @@ export default function Auth() {
           )}
         </div>
       </div>
+
+      <TermsModal open={showTerms} onClose={() => setShowTerms(false)} />
     </div>
   );
 }
