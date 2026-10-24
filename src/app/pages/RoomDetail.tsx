@@ -119,7 +119,6 @@ export default function RoomDetail() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      {/* Back */}
       <Link
         to="/rooms"
         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors mb-6"
@@ -129,9 +128,7 @@ export default function RoomDetail() {
       </Link>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-        {/* LEFT */}
         <div className="lg:col-span-3">
-          {/* Image */}
           <div className="relative rounded-2xl overflow-hidden h-72 md:h-96 bg-muted mb-3">
             {room.image ? (
               <img
@@ -152,7 +149,6 @@ export default function RoomDetail() {
             </div>
           </div>
 
-          {/* Room info */}
           <h1
             className="text-foreground mb-2"
             style={{
@@ -180,7 +176,6 @@ export default function RoomDetail() {
             Comfortable accommodation for up to {room.maxGuests} guests.
           </p>
 
-          {/* Amenities */}
           <div className="mb-6">
             <h2
               className="font-semibold text-foreground mb-3"
@@ -205,7 +200,6 @@ export default function RoomDetail() {
           </div>
         </div>
 
-        {/* RIGHT - BOOKING */}
         <div className="lg:col-span-2">
           <div className="sticky top-24 bg-white rounded-2xl border border-border shadow-lg p-6">
             <div className="mb-4">

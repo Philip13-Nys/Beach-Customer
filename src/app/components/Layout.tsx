@@ -129,7 +129,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between min-h-16 py-2">
-            {/* Logo */}
             <Link to="/" className="flex items-center gap-2 group min-w-0">
               <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
                 <Anchor className="w-5 h-5 text-white" />
@@ -151,7 +150,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
             </Link>
 
-            {/* Desktop Nav */}
             <nav className="hidden md:flex items-center gap-6">
               {navLinks.map((link) => (
                 <Link
@@ -190,11 +188,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             </nav>
 
-            {/* Right side */}
             <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
               {user ? (
                 <>
-                  {/* Notifications dropdown */}
                   <div className="relative">
                     <button
                       type="button"
@@ -225,7 +221,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
                     {notificationsOpen && (
                       <>
-                        {/* Responsive notification panel */}
                         <div
                           className="
                             fixed
@@ -254,7 +249,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           role="dialog"
                           aria-label="Notifications"
                         >
-                          {/* Notification header */}
                           <div
                             className="
                               flex flex-col gap-3
@@ -303,7 +297,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             )}
                           </div>
 
-                          {/* Scrollable notification list */}
                           <div
                             className="
                               flex-1
@@ -357,7 +350,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                                     `}
                                   >
                                     <div className="flex items-start gap-3">
-                                      {/* Unread indicator */}
                                       <div
                                         className={`
                                           w-2 h-2
@@ -372,7 +364,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                                         `}
                                       />
 
-                                      {/* Notification content */}
                                       <div className="min-w-0 flex-1">
                                         <div className="flex items-start justify-between gap-2">
                                           <p className="text-sm font-semibold text-foreground leading-snug break-words min-w-0">
@@ -401,7 +392,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             )}
                           </div>
 
-                          {/* Notification footer */}
                           <div
                             className="
                               px-3 py-2
@@ -433,7 +423,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     )}
                   </div>
 
-                  {/* User menu */}
                   <div className="relative">
                     <button
                       type="button"
@@ -515,7 +504,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               )}
 
-              {/* Mobile menu toggle */}
               <button
                 type="button"
                 aria-label={menuOpen ? "Close menu" : "Open menu"}
@@ -533,7 +521,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Mobile menu */}
         {menuOpen && (
           <div className="md:hidden border-t border-border bg-white py-4 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="max-w-7xl mx-auto px-4 space-y-1">
@@ -581,13 +568,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         )}
       </header>
 
-      {/* Page content */}
       <main className="flex-1">{children}</main>
 
-      {/* Floating AI Assistant */}
       <FloatingAI />
 
-      {/* Footer */}
       <footer className="bg-primary text-white mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">

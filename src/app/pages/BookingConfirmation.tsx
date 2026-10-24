@@ -127,7 +127,6 @@ export default function BookingConfirmation() {
 
   return (
     <div className="print-area max-w-2xl mx-auto px-4 py-12">
-      {/* Success header */}
       <div className="text-center mb-10">
         <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
           <CheckCircle2 className="w-10 h-10 text-green-500" />
@@ -162,7 +161,6 @@ export default function BookingConfirmation() {
         </div>
       </div>
 
-      {/* Booking details card */}
       <div className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm mb-6">
         <div className="flex items-center gap-4 p-5 border-b border-border">
           {booking.roomImage ? (
@@ -213,7 +211,6 @@ export default function BookingConfirmation() {
           </div>
         </div>
 
-        {/* Stay details */}
         <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div className="flex items-start gap-2">
             <Calendar className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
@@ -253,7 +250,6 @@ export default function BookingConfirmation() {
           </div>
         </div>
 
-        {/* Price breakdown */}
         <div className="px-5 pb-5">
           <div className="border-t border-border pt-4 space-y-3">
             <h3 className="font-semibold text-sm text-foreground">
@@ -322,7 +318,6 @@ export default function BookingConfirmation() {
         )}
       </div>
 
-      {/* What's next */}
       <div className="bg-secondary rounded-2xl p-5 mb-6">
         <h3
           className="font-semibold text-foreground mb-3 text-sm"
@@ -348,7 +343,6 @@ export default function BookingConfirmation() {
         </div>
       </div>
 
-      {/* Actions */}
       <div className="print:hidden flex flex-col sm:flex-row gap-3">
         {["unpaid", "rejected"].includes(paymentStatus) && (
           <button

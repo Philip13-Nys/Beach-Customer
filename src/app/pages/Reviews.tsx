@@ -202,7 +202,6 @@ function ReviewsContent() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-        {/* Submit form */}
         <div className="lg:col-span-2">
           <div className="bg-white rounded-2xl border border-border p-5 sticky top-24">
             <h2
@@ -308,9 +307,7 @@ function ReviewsContent() {
           </div>
         </div>
 
-        {/* Reviews list */}
         <div className="lg:col-span-3">
-          {/* Summary */}
           <div className="bg-primary text-white rounded-2xl p-5 mb-6 flex items-center gap-5">
             <div className="text-center">
               <div
@@ -352,7 +349,6 @@ function ReviewsContent() {
             </div>
           </div>
 
-          {/* Review cards */}
           <div className="space-y-4">
             {reviews.map((review) => (
               <div

@@ -15,7 +15,6 @@ const CHIPS = [
   "Island hopping",
 ];
 
-// Cunag AI backend on Vercel
 const AI_ENDPOINT = "https://resort-ai-backend-kappa.vercel.app/api/resortAI";
 
 export default function FloatingAI() {
@@ -37,14 +36,12 @@ export default function FloatingAI() {
 
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to newest message
   useEffect(() => {
     endRef.current?.scrollIntoView({
       behavior: "smooth",
     });
   }, [msgs, typing]);
 
-  // Nudge animation
   useEffect(() => {
     const t = setTimeout(() => {
       setNudge(true);
@@ -60,9 +57,6 @@ export default function FloatingAI() {
     };
   }, []);
 
-  /**
-   * Send message to Cunag AI backend
-   */
   const send = async (text: string) => {
     const message = text.trim();
 
@@ -70,7 +64,6 @@ export default function FloatingAI() {
       return;
     }
 
-    // Add user message immediately
     setMsgs((prev) => [
       ...prev,
       {
@@ -96,13 +89,11 @@ export default function FloatingAI() {
         }),
       });
 
-      // Get raw response first
       const rawText = await response.text();
 
       console.log("Cunag HTTP status:", response.status);
       console.log("Cunag raw response:", rawText);
 
-      // Try to parse JSON
       let data: any = null;
 
       try {
@@ -155,16 +146,13 @@ export default function FloatingAI() {
     }
   };
 
-  // Hide floating AI on the full AI assistant page
   if (location.pathname === "/ai-assistant") {
     return null;
   }
 
   return (
     <>
-      {/* Floating button */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-        {/* Tooltip nudge */}
         {nudge && !open && (
           <div className="bg-white border border-border rounded-2xl shadow-xl px-4 py-3 max-w-[220px] animate-in slide-in-from-bottom-2 fade-in duration-300">
             <p className="text-xs text-foreground font-medium leading-snug">
@@ -210,7 +198,6 @@ export default function FloatingAI() {
         </button>
       </div>
 
-      {/* Chat panel */}
       {open && (
         <div
           className="fixed bottom-24 right-6 z-50 w-80 sm:w-96 bg-white rounded-3xl shadow-2xl border border-border flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 fade-in duration-200"
@@ -219,7 +206,6 @@ export default function FloatingAI() {
             boxShadow: "0 24px 64px rgba(10,61,98,0.18)",
           }}
         >
-          {/* Header */}
           <div className="bg-primary px-4 py-3 flex items-center gap-3">
             <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
               <Bot className="w-5 h-5 text-white" />
@@ -257,7 +243,6 @@ export default function FloatingAI() {
             </button>
           </div>
 
-          {/* Messages */}
           <div
             className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
             style={{ minHeight: 0 }}
@@ -287,7 +272,6 @@ export default function FloatingAI() {
               </div>
             ))}
 
-            {/* Typing indicator */}
             {typing && (
               <div className="flex gap-2">
                 <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
@@ -311,7 +295,6 @@ export default function FloatingAI() {
             <div ref={endRef} />
           </div>
 
-          {/* Quick chips */}
           {msgs.length <= 2 && !typing && (
             <div className="px-4 pb-2 flex flex-wrap gap-1.5">
               {CHIPS.map((c) => (
@@ -326,7 +309,6 @@ export default function FloatingAI() {
             </div>
           )}
 
-          {/* Input */}
           <div className="px-3 pb-3 pt-1 border-t border-border flex gap-2">
             <input
               type="text"

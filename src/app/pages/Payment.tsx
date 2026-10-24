@@ -75,8 +75,6 @@ export default function Payment() {
   const [error, setError] = useState("");
   const [paymentRecordId, setPaymentRecordId] = useState("");
 
-  // If the URL has a booking ID, use that exact Firestore booking.
-  // Otherwise, use the booking passed through AppContext.
   const target: Booking | null = bookingId
     ? firestoreBooking
     : (pendingPayment as Booking | null);
@@ -87,8 +85,6 @@ export default function Payment() {
     }
   }, [user, navigate]);
 
-  // Fetch booking directly so the page also works when opened
-  // from a link or refreshed.
   useEffect(() => {
     let active = true;
 
@@ -135,7 +131,6 @@ export default function Payment() {
     };
   }, [bookingId, user]);
 
-  // Load the resort's GCash details from the admin Firebase project.
   useEffect(() => {
     let active = true;
 
@@ -294,7 +289,6 @@ export default function Payment() {
         bookingId: target.id,
         bookingRef: target.bookingRef ?? "",
 
-        // Fields used by the receptionist page
         guest: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
         room: target.roomName ?? "",
         method: "gcash",
@@ -312,7 +306,6 @@ export default function Payment() {
         referenceNumber: cleanReference,
         verificationStatus: "pending",
 
-        // Additional customer/payment information
         customerId: user.id,
         customerName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
         customerEmail: user.email ?? "",
@@ -330,10 +323,8 @@ export default function Payment() {
         paymentRecordId: paymentRef.id,
       });
 
-      // Save payment and booking status together.
       await batch.commit();
 
-      // Keep the app context in sync with Firestore.
       await modifyBooking(target.id, {
         paymentStatus: "pending_verification",
         paymentMethod: "GCash",
@@ -360,8 +351,6 @@ export default function Payment() {
       setPendingPayment(null);
       setPaymentRecordId(paymentRef.id);
 
-      // Notify the customer after the Firestore payment submission succeeds.
-      // A notification error must not make the successful payment look failed.
       try {
         await createNotification({
           eventId: `payment-submitted-${paymentRef.id}`,

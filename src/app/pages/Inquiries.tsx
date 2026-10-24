@@ -90,7 +90,6 @@ export default function Inquiries() {
   const [sending, setSending] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Load only inquiries belonging to the signed-in customer.
   useEffect(() => {
     if (!uid) {
       setInquiries([]);
@@ -155,7 +154,6 @@ export default function Inquiries() {
     return () => unsubscribe();
   }, [uid]);
 
-  // Keep the customer's profile details in the form.
   useEffect(() => {
     if (!user) {
       setFormData((prev) => ({
@@ -178,8 +176,6 @@ export default function Inquiries() {
       (inquiry) => inquiry.id === selectedInquiryId && inquiry.userId === uid,
     ) || null;
 
-  // Listen to replies only for the selected inquiry, after confirming
-  // that it belongs to the current customer.
   useEffect(() => {
     if (!uid || !selectedInquiryId) {
       return;
@@ -354,7 +350,6 @@ export default function Inquiries() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* CONTACT INFORMATION */}
         <div className="space-y-4">
           <div className="bg-primary rounded-2xl p-5 text-white">
             <h2
@@ -419,9 +414,7 @@ export default function Inquiries() {
           </div>
         </div>
 
-        {/* RIGHT SIDE */}
         <div className="lg:col-span-2">
-          {/* TABS */}
           <div className="flex gap-1 bg-muted p-1 rounded-xl mb-5">
             {[
               { id: "form", label: "📩 Message Us" },
@@ -442,7 +435,6 @@ export default function Inquiries() {
             ))}
           </div>
 
-          {/* FORM */}
           {tab === "form" && (
             <div className="bg-white rounded-2xl border border-border p-5">
               {formSent ? (
@@ -564,7 +556,6 @@ export default function Inquiries() {
             </div>
           )}
 
-          {/* CHAT */}
           {tab === "chat" && (
             <div
               className="bg-white rounded-2xl border border-border flex flex-col"
@@ -585,7 +576,6 @@ export default function Inquiries() {
                 </div>
               </div>
 
-              {/* INQUIRY SELECTOR */}
               <div className="p-3 border-b border-border">
                 {loadingInquiries ? (
                   <p className="text-xs text-muted-foreground">
@@ -610,7 +600,6 @@ export default function Inquiries() {
                 )}
               </div>
 
-              {/* MESSAGES */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {!selectedInquiry ? (
                   <div className="h-full flex items-center justify-center text-center">
@@ -686,7 +675,6 @@ export default function Inquiries() {
                 )}
               </div>
 
-              {/* REPLY BOX */}
               <div className="p-3 border-t border-border flex gap-2">
                 <input
                   type="text"
@@ -717,7 +705,6 @@ export default function Inquiries() {
             </div>
           )}
 
-          {/* FAQ */}
           {tab === "faq" && (
             <div className="space-y-3">
               {FAQS.map((faq, i) => (

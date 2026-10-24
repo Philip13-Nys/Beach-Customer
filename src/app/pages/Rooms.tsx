@@ -144,7 +144,6 @@ function bookingMatchesIndividualRoom(
 
   if (!bookingRoomId) return false;
 
-  // Direct individual-room match.
   if (
     bookingRoomId === normalize(room.id) ||
     bookingRoomId === normalize(room.roomId)
@@ -241,8 +240,6 @@ export default function Rooms() {
           };
         });
 
-        // Match room type names to their Firestore document IDs,
-        // as the Admin Room Availability page does.
         const nameToRoomTypeId: Record<string, string> = {};
 
         roomData.forEach((roomType) => {
@@ -338,9 +335,6 @@ export default function Rooms() {
             normalize(room.roomTypeName) === normalize(roomType.name),
         );
 
-        // Use actual individual-room inventory when available.
-        // Fall back to roomTypes.count only if no individual room docs
-        // can be matched to this room type.
         const hasIndividualInventory = typeRooms.length > 0;
 
         const inventory = hasIndividualInventory
@@ -360,12 +354,10 @@ export default function Rooms() {
         let availableCount = 0;
 
         if (!hasValidDateRange || !requestedCheckIn || !requestedCheckOut) {
-          // Without dates, show the count of rooms not in maintenance.
           availableCount = hasIndividualInventory
             ? inventory.length
             : roomType.count;
         } else if (hasIndividualInventory) {
-          // Count individual rooms that have no matching booking.
           const typeBookings = activeBookings.filter((booking) =>
             roomMatchesBookingType(
               {
@@ -394,8 +386,6 @@ export default function Rooms() {
             if (matchingIndividualRoom) {
               specificallyBookedRoomIds.add(matchingIndividualRoom.id);
             } else {
-              // If roomId contains the type ID (rather than a room ID),
-              // the booking represents a quantity of rooms of this type.
               const isTypeLevelBooking =
                 bookingRoomId === normalize(roomType.id) ||
                 getBookingTypeValues(booking).includes(
@@ -420,8 +410,6 @@ export default function Rooms() {
             unbookedIndividualCount - typeLevelBookedCount,
           );
         } else {
-          // No individual room records were found for this type.
-          // Calculate from the room type's configured inventory.
           const bookedCount = activeBookings.reduce((total, booking) => {
             const values = getBookingTypeValues(booking);
             const matchesType =

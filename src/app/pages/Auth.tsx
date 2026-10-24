@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useApp } from "../context/AppContext";
+import { sendPasswordResetEmail } from "firebase/auth";
+import { auth } from "../components/firebase";
 import {
   Eye,
   EyeOff,
@@ -9,9 +11,13 @@ import {
   AlertCircle,
   ArrowLeft,
 } from "lucide-react";
+import TurnstileWidget from "../components/TurnstileWidget";
+import { verifyTurnstile } from "../components/verifyTurnstile";
 
 export default function Auth() {
   const { user, login, register, googleLogin, googleRegister } = useApp();
+
+  const [turnstileToken, setTurnstileToken] = useState("");
 
   const [params] = useSearchParams();
 
@@ -26,6 +32,12 @@ export default function Auth() {
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+
+  const [forgotPassword, setForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState("");
+  const [resetError, setResetError] = useState("");
 
   const [showLoginPwd, setShowLoginPwd] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
@@ -47,6 +59,62 @@ export default function Auth() {
     }
   }, [user, navigate]);
 
+  const handleForgotPassword = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    setResetError("");
+    setResetSuccess("");
+
+    const email = resetEmail.trim();
+
+    if (!email) {
+      setResetError("Please enter your email address.");
+      return;
+    }
+
+    if (!turnstileToken) {
+      setLoginError("Please complete the security verification.");
+      return;
+    }
+
+    setResetLoading(true);
+
+    try {
+      const isVerified = await verifyTurnstile(turnstileToken);
+
+      setTurnstileToken("");
+
+      if (!isVerified) {
+        setResetError("Security verification failed. Please try again.");
+        return;
+      }
+
+      await sendPasswordResetEmail(auth, email);
+
+      setResetSuccess(
+        "If an account exists with this email, a password reset link has been sent. Please check your inbox and spam folder.",
+      );
+    } catch (error: any) {
+      console.error("Password reset error:", error);
+
+      if (error.code === "auth/invalid-email") {
+        setResetError("Please enter a valid email address.");
+      } else if (error.code === "auth/too-many-requests") {
+        setResetError(
+          "Too many attempts. Please wait a while before trying again.",
+        );
+      } else if (error.code === "auth/network-request-failed") {
+        setResetError("Network error. Please check your internet connection.");
+      } else {
+        setResetError(
+          "Unable to send the password reset email. Please try again.",
+        );
+      }
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -57,7 +125,24 @@ export default function Auth() {
       return;
     }
 
+    if (!turnstileToken) {
+      setLoginError("Please complete the security verification.");
+      return;
+    }
+
     try {
+      const isVerified = await verifyTurnstile(turnstileToken);
+
+      if (!isVerified) {
+        setTurnstileToken("");
+
+        setLoginError(
+          "Security verification failed or expired. Please try again.",
+        );
+
+        return;
+      }
+
       const success = await login(loginEmail.trim(), loginPassword);
 
       if (success) {
@@ -72,6 +157,7 @@ export default function Auth() {
         setLoginError(
           "Your email is not verified. Please check your email and verify your account before signing in.",
         );
+
         return;
       }
 
@@ -92,7 +178,21 @@ export default function Auth() {
     setLoginError("");
     setRegisterError("");
 
+    if (!turnstileToken) {
+      setLoginError("Please complete the security verification.");
+      return;
+    }
+
     try {
+      const isVerified = await verifyTurnstile(turnstileToken);
+
+      setTurnstileToken("");
+
+      if (!isVerified) {
+        setLoginError("Security verification failed. Please try again.");
+        return;
+      }
+
       const success = await googleLogin();
 
       if (success) {
@@ -123,7 +223,7 @@ export default function Auth() {
     }
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     setRegisterError("");
@@ -152,16 +252,40 @@ export default function Auth() {
       return;
     }
 
+    if (!/[A-Za-z]/.test(form.password) || !/[0-9]/.test(form.password)) {
+      setRegisterError(
+        "Password must contain at least one letter and one number.",
+      );
+      return;
+    }
+
     if (form.password !== form.confirmPassword) {
       setRegisterError("Passwords do not match.");
       return;
     }
 
+    if (!turnstileToken) {
+      setRegisterError("Please complete the security verification.");
+      return;
+    }
+
     try {
+      const isVerified = await verifyTurnstile(turnstileToken);
+
+      if (!isVerified) {
+        setTurnstileToken("");
+
+        setRegisterError(
+          "Security verification failed or expired. Please try again.",
+        );
+
+        return;
+      }
+
       const success = await register({
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
-        email: form.email.trim(),
+        email: form.email.trim().toLowerCase(),
         phone: form.phone.trim(),
         password: form.password,
       });
@@ -201,7 +325,7 @@ export default function Auth() {
       }
 
       if (error.code === "auth/weak-password") {
-        setRegisterError("Password must be at least 6 characters.");
+        setRegisterError("Password must be at least 8 characters.");
         return;
       }
 
@@ -219,7 +343,21 @@ export default function Auth() {
       return;
     }
 
+    if (!turnstileToken) {
+      setRegisterError("Please complete the security verification.");
+      return;
+    }
+
     try {
+      const isVerified = await verifyTurnstile(turnstileToken);
+
+      setTurnstileToken("");
+
+      if (!isVerified) {
+        setRegisterError("Security verification failed. Please try again.");
+        return;
+      }
+
       const success = await googleRegister({
         firstName: "",
         lastName: "",
@@ -380,135 +518,228 @@ export default function Auth() {
           </div>
 
           {tab === "login" ? (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <h1
-                  className="text-foreground mb-1"
-                  style={{
-                    fontFamily: "var(--font-display)",
-                    fontSize: "1.875rem",
-                    fontWeight: 700,
-                  }}
-                >
-                  Welcome back
-                </h1>
-
-                <p className="text-muted-foreground text-sm">
-                  Sign in using your verified email account.
-                </p>
-              </div>
-
-              {loginError && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  {loginError}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-medium text-foreground mb-1.5">
-                  Email address
-                </label>
-
-                <input
-                  type="email"
-                  placeholder="cunag@email.com"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-foreground mb-1.5">
-                  Password
-                </label>
-
-                <div className="relative">
-                  <input
-                    type={showLoginPwd ? "text" : "password"}
-                    placeholder="••••••••"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    className={inputClass + " pr-10"}
-                  />
-
-                  <button
-                    type="button"
-                    aria-label={
-                      showLoginPwd ? "Hide password" : "Show password"
-                    }
-                    onClick={() => setShowLoginPwd((previous) => !previous)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
+            forgotPassword ? (
+              <form onSubmit={handleForgotPassword} className="space-y-4">
+                <div>
+                  <h1
+                    className="text-foreground mb-1"
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontSize: "1.875rem",
+                      fontWeight: 700,
+                    }}
                   >
-                    {showLoginPwd ? (
-                      <Eye className="w-4 h-4" />
-                    ) : (
-                      <EyeOff className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
+                    Forgot Password?
+                  </h1>
 
-              <button
-                type="submit"
-                className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
-              >
-                Sign In
-              </button>
-
-              <div className="relative my-4">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-border" />
+                  <p className="text-muted-foreground text-sm">
+                    Enter the email address associated with your account. We'll
+                    send you a link to reset your password.
+                  </p>
                 </div>
 
-                <div className="relative flex justify-center text-xs">
-                  <span className="bg-background px-3 text-muted-foreground">
-                    OR
-                  </span>
+                {resetError && (
+                  <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    {resetError}
+                  </div>
+                )}
+
+                {resetSuccess && (
+                  <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-xl text-green-700 text-xs">
+                    <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                    <span>{resetSuccess}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
+                    Email address
+                  </label>
+
+                  <input
+                    type="email"
+                    placeholder="cunag@email.com"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    required
+                    className={inputClass}
+                  />
                 </div>
-              </div>
 
-              <button
-                type="button"
-                onClick={handleGoogleLogin}
-                className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
-              >
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M21.35 12.23c0-.79-.07-1.55-.2-2.27H12v4.3h5.23a4.47 4.47 0 0 1-1.94 2.93v2.43h3.14c1.84-1.69 2.92-4.18 2.92-7.39z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 21.5c2.63 0 4.84-.87 6.45-2.35l-3.14-2.43c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.51A9.74 9.74 0 0 0 12 21.5z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M6.54 13.61A5.85 5.85 0 0 1 6.23 12c0-.56.1-1.1.31-1.61V7.88H3.3A9.75 9.75 0 0 0 2.25 12c0 1.57.38 3.05 1.05 4.12l3.24-2.51z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 6.36c1.43 0 2.71.49 3.72 1.46l2.79-2.79C16.83 3.48 14.63 2.5 12 2.5a9.74 9.74 0 0 0-8.7 5.38l3.24 2.51C7.31 8.08 9.46 6.36 12 6.36z"
-                  />
-                </svg>
-                Continue with Google
-              </button>
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {resetLoading ? "Sending reset link..." : "Send Reset Link"}
+                </button>
 
-              <p className="text-center text-xs text-muted-foreground">
-                No account yet?{" "}
                 <button
                   type="button"
                   onClick={() => {
+                    setForgotPassword(false);
+                    setResetError("");
+                    setResetSuccess("");
                     setLoginError("");
-                    setTab("register");
                   }}
-                  className="text-primary font-medium"
+                  className="w-full flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
                 >
-                  Create one
+                  <ArrowLeft className="w-4 h-4" />
+                  Back to Sign In
                 </button>
-              </p>
-            </form>
+              </form>
+            ) : (
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <h1
+                    className="text-foreground mb-1"
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontSize: "1.875rem",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Welcome back
+                  </h1>
+
+                  <p className="text-muted-foreground text-sm">
+                    Sign in using your verified email account.
+                  </p>
+                </div>
+
+                {loginError && (
+                  <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    {loginError}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
+                    Email address
+                  </label>
+
+                  <input
+                    type="email"
+                    placeholder="cunag@email.com"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium text-foreground">
+                      Password
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetEmail(loginEmail);
+                        setResetError("");
+                        setResetSuccess("");
+                        setForgotPassword(true);
+                      }}
+                      className="text-xs text-primary font-medium hover:text-accent transition-colors"
+                    >
+                      Forgot Password?
+                    </button>
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      type={showLoginPwd ? "text" : "password"}
+                      placeholder="••••••••"
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      className={inputClass + " pr-10"}
+                    />
+
+                    <button
+                      type="button"
+                      aria-label={
+                        showLoginPwd ? "Hide password" : "Show password"
+                      }
+                      onClick={() => setShowLoginPwd((previous) => !previous)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      {showLoginPwd ? (
+                        <Eye className="w-4 h-4" />
+                      ) : (
+                        <EyeOff className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <TurnstileWidget
+                  onVerify={(token) => setTurnstileToken(token)}
+                  onExpire={() => setTurnstileToken("")}
+                  onError={() => setTurnstileToken("")}
+                />
+
+                <button
+                  type="submit"
+                  className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
+                >
+                  Sign In
+                </button>
+
+                <div className="relative my-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-border" />
+                  </div>
+
+                  <div className="relative flex justify-center text-xs">
+                    <span className="bg-background px-3 text-muted-foreground">
+                      OR
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
+                >
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M21.35 12.23c0-.79-.07-1.55-.2-2.27H12v4.3h5.23a4.47 4.47 0 0 1-1.94 2.93v2.43h3.14c1.84-1.69 2.92-4.18 2.92-7.39z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 21.5c2.63 0 4.84-.87 6.45-2.35l-3.14-2.43c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.51A9.74 9.74 0 0 0 12 21.5z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M6.54 13.61A5.85 5.85 0 0 1 6.23 12c0-.56.1-1.1.31-1.61V7.88H3.3A9.75 9.75 0 0 0 2.25 12c0 1.57.38 3.05 1.05 4.12l3.24-2.51z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 6.36c1.43 0 2.71.49 3.72 1.46l2.79-2.79C16.83 3.48 14.63 2.5 12 2.5a9.74 9.74 0 0 0-8.7 5.38l3.24 2.51C7.31 8.08 9.46 6.36 12 6.36z"
+                    />
+                  </svg>
+                  Continue with Google
+                </button>
+
+                <p className="text-center text-xs text-muted-foreground">
+                  No account yet?{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginError("");
+                      setTab("register");
+                    }}
+                    className="text-primary font-medium"
+                  >
+                    Create one
+                  </button>
+                </p>
+              </form>
+            )
           ) : (
             <form onSubmit={handleRegister} className="space-y-3">
               <div>
