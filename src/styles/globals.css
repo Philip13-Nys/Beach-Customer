@@ -11,12 +11,10 @@
     background: white !important;
   }
 
-  /* Hide the entire website */
   body * {
     visibility: hidden;
   }
 
-  /* Show only booking confirmation */
   .print-area,
   .print-area * {
     visibility: visible;
@@ -33,18 +31,15 @@
     background: white !important;
   }
 
-  /* Hide buttons */
   .print\:hidden {
     display: none !important;
   }
 
-  /* Prevent cards from being split */
   .print-area > div {
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
-  /* Don't print unnecessary shadows */
   .print-area .shadow-sm,
   .print-area .shadow-lg {
     box-shadow: none !important;

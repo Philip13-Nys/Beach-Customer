@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Users, Filter, X, Search } from "lucide-react";
 import { db, customerDb } from "../components/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 
 type RoomType = {
   id: string;
@@ -36,6 +36,16 @@ type IndividualRoom = {
   roomTypeName: string;
   type?: string;
   status: string;
+};
+
+type ResortSettings = {
+  resortName: string;
+  address: string;
+};
+
+const DEFAULT_SETTINGS: ResortSettings = {
+  resortName: "Sabang Beach and Diving Resort",
+  address: "Sabang, Puerto",
 };
 
 function toDate(value: any): Date | null {
@@ -136,24 +146,6 @@ function roomMatchesBookingType(
   );
 }
 
-function bookingMatchesIndividualRoom(
-  room: IndividualRoom,
-  booking: Booking,
-): boolean {
-  const bookingRoomId = normalize(booking.roomId);
-
-  if (!bookingRoomId) return false;
-
-  if (
-    bookingRoomId === normalize(room.id) ||
-    bookingRoomId === normalize(room.roomId)
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
 export default function Rooms() {
   const [params] = useSearchParams();
 
@@ -167,6 +159,8 @@ export default function Rooms() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [individualRooms, setIndividualRooms] = useState<IndividualRoom[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [settings, setSettings] = useState<ResortSettings>(DEFAULT_SETTINGS);
 
   const guestsParam = params.get("guests")
     ? parseInt(params.get("guests")!, 10)
@@ -200,6 +194,41 @@ export default function Rooms() {
   useEffect(() => {
     let active = true;
 
+    const loadSettings = async () => {
+      try {
+        const settingsSnapshot = await getDoc(
+          doc(db, "publicSettings", "general"),
+        );
+
+        if (!active || !settingsSnapshot.exists()) return;
+
+        const data = settingsSnapshot.data();
+
+        setSettings({
+          resortName:
+            typeof data.resortName === "string" && data.resortName.trim()
+              ? data.resortName.trim()
+              : DEFAULT_SETTINGS.resortName,
+          address:
+            typeof data.address === "string" && data.address.trim()
+              ? data.address.trim()
+              : DEFAULT_SETTINGS.address,
+        });
+      } catch (error) {
+        console.error("Failed to load resort settings:", error);
+      }
+    };
+
+    loadSettings();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
     const loadRooms = async () => {
       setLoading(true);
 
@@ -223,11 +252,11 @@ export default function Rooms() {
 
         const roomTypesSnapshot = roomTypesResult.value;
 
-        const roomData: RoomType[] = roomTypesSnapshot.docs.map((doc) => {
-          const data = doc.data();
+        const roomData: RoomType[] = roomTypesSnapshot.docs.map((roomDoc) => {
+          const data = roomDoc.data();
 
           return {
-            id: doc.id,
+            id: roomDoc.id,
             name: String(data.name || ""),
             count: Math.max(
               0,
@@ -253,6 +282,7 @@ export default function Rooms() {
           individualRoomData = individualRoomsResult.value.docs.map(
             (roomDoc) => {
               const data = roomDoc.data();
+
               const typeName = String(
                 data.type ||
                   data.roomTypeName ||
@@ -304,10 +334,6 @@ export default function Rooms() {
             bookingsResult.reason,
           );
         }
-
-        console.log("ROOM TYPE MAP:", nameToRoomTypeId);
-        console.log("INDIVIDUAL ROOMS:", individualRoomData);
-        console.log("CUSTOMER BOOKINGS:", bookingData);
 
         setRooms(roomData);
         setBookings(bookingData);
@@ -412,6 +438,7 @@ export default function Rooms() {
         } else {
           const bookedCount = activeBookings.reduce((total, booking) => {
             const values = getBookingTypeValues(booking);
+
             const matchesType =
               values.includes(normalize(roomType.id)) ||
               values.includes(normalize(roomType.name)) ||
@@ -482,7 +509,7 @@ export default function Rooms() {
 
         <p className="text-muted-foreground text-sm mt-1">
           {filtered.length} room type
-          {filtered.length !== 1 ? "s" : ""} available · Sabang, Puerto
+          {filtered.length !== 1 ? "s" : ""} available · {settings.address}
         </p>
 
         {hasValidDateRange && (
@@ -629,7 +656,13 @@ export default function Rooms() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {filtered.map((room) => (
-                <RoomCard key={room.id} room={room} />
+                <RoomCard
+                  key={room.id}
+                  room={room}
+                  checkIn={checkInParam || ""}
+                  checkOut={checkOutParam || ""}
+                  guests={guestsParam}
+                />
               ))}
             </div>
           )}
@@ -639,8 +672,27 @@ export default function Rooms() {
   );
 }
 
-function RoomCard({ room }: { room: RoomType }) {
+function RoomCard({
+  room,
+  checkIn,
+  checkOut,
+  guests,
+}: {
+  room: RoomType;
+  checkIn: string;
+  checkOut: string;
+  guests: number;
+}) {
   const displayCount = room.availableCount ?? room.count;
+
+  const detailParams = new URLSearchParams();
+
+  if (checkIn) detailParams.set("checkIn", checkIn);
+  if (checkOut) detailParams.set("checkOut", checkOut);
+
+  detailParams.set("guests", String(guests));
+
+  const detailUrl = `/rooms/${room.id}?${detailParams.toString()}`;
 
   return (
     <div className="bg-white rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-lg transition-all duration-300 group">
@@ -720,7 +772,8 @@ function RoomCard({ room }: { room: RoomType }) {
           </div>
 
           <Link
-            to={`/rooms/${room.id}`}
+            to={detailUrl}
+            state={{ checkIn, checkOut, guests }}
             className="text-sm font-medium px-4 py-2 rounded-xl bg-primary text-white hover:bg-primary/90 transition-colors"
           >
             View Details

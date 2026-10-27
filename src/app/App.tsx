@@ -1,5 +1,6 @@
 import { HashRouter, Routes, Route } from "react-router";
 import { AppProvider } from "./context/AppContext";
+
 import Layout from "./components/Layout";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
@@ -21,6 +22,7 @@ export default function App() {
       <HashRouter>
         <Routes>
           <Route path="/auth" element={<Auth />} />
+
           <Route
             path="/*"
             element={
@@ -29,12 +31,16 @@ export default function App() {
                   <Route path="/" element={<Landing />} />
                   <Route path="/rooms" element={<Rooms />} />
                   <Route path="/rooms/:id" element={<RoomDetail />} />
+
                   <Route path="/booking/:id" element={<BookingPage />} />
+
                   <Route
                     path="/booking-confirmation/:id"
                     element={<BookingConfirmation />}
                   />
+
                   <Route path="/booking-history" element={<BookingHistory />} />
+
                   <Route path="/bookings" element={<BookingHistory />} />
                   <Route path="/payment" element={<Payment />} />
                   <Route path="/services" element={<Services />} />

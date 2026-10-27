@@ -3,9 +3,9 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const adminFirebaseConfig = {
-  apiKey: "AIzaSyCIjTHJOa3nWNz6nCib6AYZJ8MYmvgRsPA",
-  authDomain: "admin-80f41.firebaseapp.com",
-  projectId: "admin-80f41",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: "admin-80f41.firebasestorage.app",
   messagingSenderId: "670887007684",
   appId: "1:670887007684:web:667d509694678590084091",
@@ -16,9 +16,9 @@ const adminApp =
 export const db = getFirestore(adminApp);
 
 const customerFirebaseConfig = {
-  apiKey: "AIzaSyCK-OcxL1VnKr_b3Cps5B7_8GvuChQClCw",
-  authDomain: "customeraccount-ce2ae.firebaseapp.com",
-  projectId: "customeraccount-ce2ae",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEYs,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAINs,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_IDs,
   storageBucket: "customeraccount-ce2ae.firebasestorage.app",
   messagingSenderId: "9548262291",
   appId: "1:9548262291:web:d2ace301dcba4638671666",

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router";
 import { useApp } from "../context/AppContext";
 import FloatingAI from "./FloatingAI";
+import { useResortSettings } from "../../hooks/useResortSettings";
+
 import {
   Waves,
   Menu,
@@ -54,9 +56,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const { settings: resortSettings } = useResortSettings();
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  const resortName =
+    resortSettings.resortName?.trim() || "Sabang Beach and Diving Resort";
+
+  const resortDescription =
+    resortSettings.description?.trim() ||
+    "Welcome to our resort, where you can relax, explore beautiful surroundings, and enjoy unforgettable beach and diving experiences.";
+
+  const resortAddress = resortSettings.address?.trim() || "";
+  const resortPhone = resortSettings.phone?.trim() || "";
+  const resortEmail = resortSettings.email?.trim() || "";
 
   const handleLogout = async () => {
     try {
@@ -137,15 +152,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <div className="min-w-0">
                 <div
                   className="text-xs sm:text-sm font-semibold text-primary leading-tight truncate max-w-[150px] sm:max-w-none"
-                  style={{
-                    fontFamily: "var(--font-display)",
-                  }}
+                  style={{ fontFamily: "var(--font-display)" }}
                 >
-                  Sabang Beach and Diving Resort
+                  {resortName}
                 </div>
 
                 <div className="hidden sm:block text-[10px] text-muted-foreground leading-none tracking-wide uppercase">
-                  Beach & Dive Resort
+                  Beach &amp; Diving Resort
                 </div>
               </div>
             </Link>
@@ -220,206 +233,118 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     </button>
 
                     {notificationsOpen && (
-                      <>
-                        <div
-                          className="
-                            fixed
-                            left-3 right-3
-                            top-[4.5rem]
-                            w-auto
-                            max-w-none
-                            max-h-[calc(100dvh-5.5rem)]
-                            flex flex-col
-                            bg-white
-                            rounded-xl
-                            shadow-xl
-                            border border-border
-                            z-[100]
-                            overflow-hidden
+                      <div
+                        className="fixed left-3 right-3 top-[4.5rem] w-auto max-w-none max-h-[calc(100dvh-5.5rem)] flex flex-col bg-white rounded-xl shadow-xl border border-border z-[100] overflow-hidden md:absolute md:left-auto md:right-0 md:top-full md:mt-2 md:w-[380px] md:max-w-[calc(100vw-2rem)] md:max-h-[min(75vh,560px)]"
+                        role="dialog"
+                        aria-label="Notifications"
+                      >
+                        <div className="flex flex-col gap-3 px-3 py-3 border-b border-border flex-shrink-0 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+                          <div className="min-w-0">
+                            <h3 className="text-sm font-semibold text-foreground">
+                              Notifications
+                            </h3>
 
-                            md:absolute
-                            md:left-auto
-                            md:right-0
-                            md:top-full
-                            md:mt-2
-                            md:w-[380px]
-                            md:max-w-[calc(100vw-2rem)]
-                            md:max-h-[min(75vh,560px)]
-                          "
-                          role="dialog"
-                          aria-label="Notifications"
-                        >
-                          <div
-                            className="
-                              flex flex-col gap-3
-                              px-3 py-3
-                              border-b border-border
-                              flex-shrink-0
-
-                              sm:flex-row
-                              sm:items-center
-                              sm:justify-between
-                              sm:px-4
-                            "
-                          >
-                            <div className="min-w-0">
-                              <h3 className="text-sm font-semibold text-foreground">
-                                Notifications
-                              </h3>
-
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {unreadCount > 0
-                                  ? `${unreadCount} unread`
-                                  : "You're all caught up"}
-                              </p>
-                            </div>
-
-                            {unreadCount > 0 && (
-                              <button
-                                type="button"
-                                onClick={handleMarkAllRead}
-                                className="
-                                  self-start
-                                  sm:self-auto
-                                  text-xs
-                                  font-medium
-                                  text-primary
-                                  hover:text-primary/70
-                                  flex items-center
-                                  gap-1
-                                  whitespace-nowrap
-                                  transition-colors
-                                "
-                              >
-                                <CheckCheck className="w-4 h-4 flex-shrink-0" />
-                                Mark all read
-                              </button>
-                            )}
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {unreadCount > 0
+                                ? `${unreadCount} unread`
+                                : "You're all caught up"}
+                            </p>
                           </div>
 
-                          <div
-                            className="
-                              flex-1
-                              min-h-0
-                              overflow-y-auto
-                              overscroll-contain
-                              max-h-[calc(100dvh-12rem)]
-                              md:max-h-none
-                            "
-                          >
-                            {!notifications || notifications.length === 0 ? (
-                              <div className="px-5 py-10 text-center">
-                                <div className="w-12 h-12 rounded-full bg-muted mx-auto flex items-center justify-center mb-3">
-                                  <Bell className="w-5 h-5 text-muted-foreground" />
-                                </div>
-
-                                <p className="text-sm font-medium text-foreground">
-                                  No notifications yet
-                                </p>
-
-                                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                                  Updates about your bookings and payments will
-                                  appear here.
-                                </p>
-                              </div>
-                            ) : (
-                              notifications
-                                .slice(0, 20)
-                                .map((notification: any) => (
-                                  <button
-                                    type="button"
-                                    key={notification.id}
-                                    onClick={() =>
-                                      handleNotificationClick(notification)
-                                    }
-                                    className={`
-                                      w-full
-                                      text-left
-                                      px-3 py-3
-                                      sm:px-4
-                                      border-b
-                                      border-border
-                                      last:border-b-0
-                                      hover:bg-muted/70
-                                      transition-colors
-                                      ${
-                                        !notification.read
-                                          ? "bg-primary/[0.04]"
-                                          : ""
-                                      }
-                                    `}
-                                  >
-                                    <div className="flex items-start gap-3">
-                                      <div
-                                        className={`
-                                          w-2 h-2
-                                          rounded-full
-                                          mt-2
-                                          flex-shrink-0
-                                          ${
-                                            !notification.read
-                                              ? "bg-accent"
-                                              : "bg-transparent"
-                                          }
-                                        `}
-                                      />
-
-                                      <div className="min-w-0 flex-1">
-                                        <div className="flex items-start justify-between gap-2">
-                                          <p className="text-sm font-semibold text-foreground leading-snug break-words min-w-0">
-                                            {notification.title ||
-                                              "Notification"}
-                                          </p>
-
-                                          {!notification.read && (
-                                            <span className="text-[10px] text-accent font-semibold flex-shrink-0 pt-0.5">
-                                              NEW
-                                            </span>
-                                          )}
-                                        </div>
-
-                                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed break-words whitespace-normal">
-                                          {notification.message || ""}
-                                        </p>
-
-                                        <p className="text-[10px] text-muted-foreground mt-2">
-                                          {formatDate(notification.createdAt)}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  </button>
-                                ))
-                            )}
-                          </div>
-
-                          <div
-                            className="
-                              px-3 py-2
-                              sm:px-4
-                              border-t
-                              border-border
-                              bg-muted/30
-                              flex
-                              justify-between
-                              items-center
-                              gap-2
-                              flex-shrink-0
-                            "
-                          >
-                            <span className="text-[10px] text-muted-foreground">
-                              Latest updates
-                            </span>
-
+                          {unreadCount > 0 && (
                             <button
                               type="button"
-                              onClick={() => setNotificationsOpen(false)}
-                              className="text-xs font-medium text-primary hover:underline whitespace-nowrap"
+                              onClick={handleMarkAllRead}
+                              className="self-start sm:self-auto text-xs font-medium text-primary hover:text-primary/70 flex items-center gap-1 whitespace-nowrap transition-colors"
                             >
-                              Close
+                              <CheckCheck className="w-4 h-4 flex-shrink-0" />
+                              Mark all read
                             </button>
-                          </div>
+                          )}
                         </div>
-                      </>
+
+                        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain max-h-[calc(100dvh-12rem)] md:max-h-none">
+                          {!notifications || notifications.length === 0 ? (
+                            <div className="px-5 py-10 text-center">
+                              <div className="w-12 h-12 rounded-full bg-muted mx-auto flex items-center justify-center mb-3">
+                                <Bell className="w-5 h-5 text-muted-foreground" />
+                              </div>
+
+                              <p className="text-sm font-medium text-foreground">
+                                No notifications yet
+                              </p>
+
+                              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                                Updates about your bookings and payments will
+                                appear here.
+                              </p>
+                            </div>
+                          ) : (
+                            notifications
+                              .slice(0, 20)
+                              .map((notification: any) => (
+                                <button
+                                  type="button"
+                                  key={notification.id}
+                                  onClick={() =>
+                                    handleNotificationClick(notification)
+                                  }
+                                  className={`w-full text-left px-3 py-3 sm:px-4 border-b border-border last:border-b-0 hover:bg-muted/70 transition-colors ${
+                                    !notification.read
+                                      ? "bg-primary/[0.04]"
+                                      : ""
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <div
+                                      className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
+                                        !notification.read
+                                          ? "bg-accent"
+                                          : "bg-transparent"
+                                      }`}
+                                    />
+
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <p className="text-sm font-semibold text-foreground leading-snug break-words min-w-0">
+                                          {notification.title || "Notification"}
+                                        </p>
+
+                                        {!notification.read && (
+                                          <span className="text-[10px] text-accent font-semibold flex-shrink-0 pt-0.5">
+                                            NEW
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed break-words whitespace-normal">
+                                        {notification.message || ""}
+                                      </p>
+
+                                      <p className="text-[10px] text-muted-foreground mt-2">
+                                        {formatDate(notification.createdAt)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </button>
+                              ))
+                          )}
+                        </div>
+
+                        <div className="px-3 py-2 sm:px-4 border-t border-border bg-muted/30 flex justify-between items-center gap-2 flex-shrink-0">
+                          <span className="text-[10px] text-muted-foreground">
+                            Latest updates
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => setNotificationsOpen(false)}
+                            className="text-xs font-medium text-primary hover:underline whitespace-nowrap"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
 
@@ -581,31 +506,29 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <Anchor className="w-5 h-5 text-white" />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <div
-                    className="font-semibold text-white"
-                    style={{
-                      fontFamily: "var(--font-display)",
-                    }}
+                    className="font-semibold text-white break-words"
+                    style={{ fontFamily: "var(--font-display)" }}
                   >
-                    Sabang Beach and Diving Resort
+                    {resortName}
                   </div>
 
                   <div className="text-xs text-white/60 uppercase tracking-wide">
-                    Beach & Dive Resort
+                    Beach &amp; Dive Resort
                   </div>
                 </div>
               </div>
 
-              <p className="text-white/70 text-sm leading-relaxed max-w-xs">
-                A top tropical getaway in Oriental Mindoro, famous for its
-                white-sand beaches and world-class scuba diving.
+              <p className="text-white/70 text-sm leading-relaxed max-w-md whitespace-pre-line break-words">
+                {resortDescription}
               </p>
 
               <div className="flex items-center gap-2 mt-4">
-                <Waves className="w-4 h-4 text-accent" />
-                <span className="text-white/60 text-xs">
-                  Est. 2015 · Puerto Galera, Philippines
+                <Waves className="w-4 h-4 text-accent flex-shrink-0" />
+
+                <span className="text-white/60 text-xs break-words">
+                  {resortAddress || "Resort location"}
                 </span>
               </div>
             </div>
@@ -619,8 +542,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 {[
                   ["Rooms", "/rooms"],
                   ["Activities", "/services"],
-                  ["Dining", "#"],
-                  ["Gallery", "#"],
+                  ["Packages", "/services"],
                 ].map(([label, href]) => (
                   <li key={label}>
                     <Link
@@ -640,9 +562,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </h4>
 
               <ul className="space-y-2 text-white/60 text-sm">
-                <li>📍 Sabang, Puerto Galera</li>
-                <li>📞 +63 48 555 0192</li>
-                <li>✉️ hello@sabangbeach.ph</li>
+                {resortAddress && <li>📍 {resortAddress}</li>}
+                {resortPhone && <li>📞 {resortPhone}</li>}
+                {resortEmail && <li>✉️ {resortEmail}</li>}
+
                 <li className="pt-2">
                   <Link
                     to="/inquiries"
@@ -657,22 +580,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
           <div className="border-t border-white/10 mt-8 sm:mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
             <p className="text-white/40 text-xs">
-              © 2026 Sabang Beach & Diving Resorts. All rights reserved.
+              © {new Date().getFullYear()} {resortName}. All rights reserved.
             </p>
-
-            <div className="flex flex-wrap justify-center sm:justify-end gap-x-4 gap-y-2 text-white/40 text-xs">
-              <a href="#" className="hover:text-white transition-colors">
-                Privacy Policy
-              </a>
-
-              <a href="#" className="hover:text-white transition-colors">
-                Terms of Service
-              </a>
-
-              <a href="#" className="hover:text-white transition-colors">
-                Cookie Policy
-              </a>
-            </div>
           </div>
         </div>
       </footer>

@@ -128,11 +128,6 @@
     @apply bg-background text-foreground;
   }
 
-  /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
-  */
-
   html {
     font-size: var(--font-size);
   }
@@ -192,12 +187,10 @@
     background: white !important;
   }
 
-  /* Hide the entire website */
   body * {
     visibility: hidden;
   }
 
-  /* Show only booking confirmation */
   .print-area,
   .print-area * {
     visibility: visible;
@@ -214,18 +207,15 @@
     background: white !important;
   }
 
-  /* Hide buttons */
   .print\:hidden {
     display: none !important;
   }
 
-  /* Prevent cards from being split */
   .print-area > div {
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
-  /* Don't print unnecessary shadows */
   .print-area .shadow-sm,
   .print-area .shadow-lg {
     box-shadow: none !important;

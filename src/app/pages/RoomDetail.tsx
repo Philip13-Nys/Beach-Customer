@@ -1,15 +1,13 @@
 import { useState, useEffect } from "react";
-import { useParams, Link, useNavigate } from "react-router";
-import { useApp } from "../context/AppContext";
 import {
-  Star,
-  Users,
-  Maximize2,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  ArrowLeft,
-} from "lucide-react";
+  useParams,
+  Link,
+  useNavigate,
+  useLocation,
+  useSearchParams,
+} from "react-router";
+import { useApp } from "../context/AppContext";
+import { Users, Check, ArrowLeft } from "lucide-react";
 
 import { db } from "../components/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -24,18 +22,123 @@ type RoomType = {
   image: string;
 };
 
+type BookingDates = {
+  checkIn?: string;
+  checkOut?: string;
+  guests?: number;
+  returnTo?: string;
+};
+
 export default function RoomDetail() {
   const { id } = useParams();
   const { user } = useApp();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  // Read dates from the URL first so they survive page refreshes.
+  // Fall back to React Router state when URL parameters are unavailable.
+  const bookingDates = (location.state || {}) as BookingDates;
+
+  const checkIn = searchParams.get("checkIn") || bookingDates.checkIn || "";
+
+  const checkOut = searchParams.get("checkOut") || bookingDates.checkOut || "";
+
+  const guestsValue = searchParams.get("guests") || bookingDates.guests;
+
+  const parsedGuests = Number(guestsValue);
+  const guests =
+    Number.isFinite(parsedGuests) && parsedGuests > 0
+      ? Math.floor(parsedGuests)
+      : 1;
 
   const [room, setRoom] = useState<RoomType | null>(null);
   const [loading, setLoading] = useState(true);
   const [reservationFeePercent, setReservationFeePercent] = useState(5);
 
+  // Format YYYY-MM-DD without timezone-related date shifts.
+  const formatDate = (date: string) => {
+    if (!date) return "Select date";
+
+    const parts = date.split("-").map(Number);
+
+    if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) {
+      return "Select date";
+    }
+
+    const [year, month, day] = parts;
+    const parsedDate = new Date(year, month - 1, day);
+
+    if (
+      parsedDate.getFullYear() !== year ||
+      parsedDate.getMonth() !== month - 1 ||
+      parsedDate.getDate() !== day
+    ) {
+      return "Select date";
+    }
+
+    return parsedDate.toLocaleDateString("en-PH", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const checkInLabel = formatDate(checkIn);
+  const checkOutLabel = formatDate(checkOut);
+
+  // Calculate nights using local date components to avoid timezone shifts.
+  const parseLocalDate = (value: string): Date | null => {
+    if (!value) return null;
+
+    const parts = value.split("-").map(Number);
+
+    if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) {
+      return null;
+    }
+
+    const [year, month, day] = parts;
+    const date = new Date(year, month - 1, day);
+
+    if (
+      date.getFullYear() !== year ||
+      date.getMonth() !== month - 1 ||
+      date.getDate() !== day
+    ) {
+      return null;
+    }
+
+    return date;
+  };
+
+  const checkInDate = parseLocalDate(checkIn);
+  const checkOutDate = parseLocalDate(checkOut);
+
+  const nights =
+    checkInDate && checkOutDate
+      ? Math.max(
+          0,
+          Math.round(
+            (checkOutDate.getTime() - checkInDate.getTime()) /
+              (1000 * 60 * 60 * 24),
+          ),
+        )
+      : 1;
+
+  const estimatedNights = nights > 0 ? nights : 1;
+  const roomTotal = room ? room.basePrice * estimatedNights : 0;
+
+  const reservationFee = Math.round(roomTotal * (reservationFeePercent / 100));
+
+  const estimatedTotal = roomTotal + reservationFee;
+
+  // Load room type details from Firestore.
   useEffect(() => {
+    let active = true;
+
     const loadRoom = async () => {
       if (!id) {
+        setRoom(null);
         setLoading(false);
         return;
       }
@@ -46,17 +149,25 @@ export default function RoomDetail() {
         const roomRef = doc(db, "roomTypes", id);
         const roomSnap = await getDoc(roomRef);
 
+        if (!active) return;
+
         if (roomSnap.exists()) {
           const data = roomSnap.data();
 
           const roomData: RoomType = {
             id: roomSnap.id,
-            name: data.name || "",
-            count: Number(data.count || 0),
+            name: String(data.name || ""),
+            count: Math.max(
+              0,
+              Number(data.count ?? data.quantity ?? data.totalRooms ?? 0),
+            ),
             amenities: Array.isArray(data.amenities) ? data.amenities : [],
-            maxGuests: Number(data.maxGuests || 1),
-            basePrice: Number(data.basePrice || 0),
-            image: data.image || "",
+            maxGuests: Math.max(
+              1,
+              Number(data.maxGuests ?? data.capacity ?? 1),
+            ),
+            basePrice: Math.max(0, Number(data.basePrice ?? data.price ?? 0)),
+            image: String(data.image || ""),
           };
 
           setRoom(roomData);
@@ -65,27 +176,35 @@ export default function RoomDetail() {
         }
       } catch (error) {
         console.error("Error loading room:", error);
-        setRoom(null);
+
+        if (active) setRoom(null);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     loadRoom();
+
+    return () => {
+      active = false;
+    };
   }, [id]);
 
+  // Load the reservation fee percentage.
   useEffect(() => {
+    let active = true;
+
     const loadReservationFee = async () => {
       try {
         const feeRef = doc(db, "settings", "reservationFee");
         const feeSnap = await getDoc(feeRef);
 
-        if (feeSnap.exists()) {
-          const percent = Number(feeSnap.data().percent);
+        if (!active || !feeSnap.exists()) return;
 
-          if (Number.isFinite(percent) && percent >= 0 && percent <= 100) {
-            setReservationFeePercent(percent);
-          }
+        const percent = Number(feeSnap.data().percent);
+
+        if (Number.isFinite(percent) && percent >= 0 && percent <= 100) {
+          setReservationFeePercent(percent);
         }
       } catch (error) {
         console.error("Error loading reservation fee:", error);
@@ -93,7 +212,37 @@ export default function RoomDetail() {
     };
 
     loadReservationFee();
+
+    return () => {
+      active = false;
+    };
   }, []);
+
+  // Preserve dates, guest count, and availability filters when returning
+  // to the room list.
+  const buildRoomsUrl = () => {
+    const params = new URLSearchParams();
+
+    if (checkIn) params.set("checkIn", checkIn);
+    if (checkOut) params.set("checkOut", checkOut);
+
+    params.set("guests", String(guests));
+
+    const availableRoomTypes = searchParams.get("availableRoomTypes");
+
+    if (availableRoomTypes !== null) {
+      params.set("availableRoomTypes", availableRoomTypes);
+    }
+
+    return `/rooms?${params.toString()}`;
+  };
+
+  // Preserve the same selection when continuing to booking or authentication.
+  const bookingState = {
+    checkIn,
+    checkOut,
+    guests,
+  };
 
   if (loading) {
     return (
@@ -110,7 +259,10 @@ export default function RoomDetail() {
 
         <p className="font-medium text-foreground">Room not found</p>
 
-        <Link to="/rooms" className="mt-4 text-primary text-sm hover:underline">
+        <Link
+          to={buildRoomsUrl()}
+          className="mt-4 text-primary text-sm hover:underline"
+        >
           Back to rooms
         </Link>
       </div>
@@ -120,7 +272,8 @@ export default function RoomDetail() {
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <Link
-        to="/rooms"
+        to={buildRoomsUrl()}
+        state={bookingState}
         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors mb-6"
       >
         <ArrowLeft className="w-4 h-4" />
@@ -167,8 +320,7 @@ export default function RoomDetail() {
             </span>
 
             <span>
-              {room.count} room
-              {room.count !== 1 ? "s" : ""}
+              {room.count} room{room.count !== 1 ? "s" : ""}
             </span>
           </div>
 
@@ -186,17 +338,23 @@ export default function RoomDetail() {
               Amenities
             </h2>
 
-            <div className="grid grid-cols-2 gap-2">
-              {room.amenities.map((amenity) => (
-                <div
-                  key={amenity}
-                  className="flex items-center gap-2 text-sm text-foreground"
-                >
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  {amenity}
-                </div>
-              ))}
-            </div>
+            {room.amenities.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2">
+                {room.amenities.map((amenity, index) => (
+                  <div
+                    key={`${amenity}-${index}`}
+                    className="flex items-center gap-2 text-sm text-foreground"
+                  >
+                    <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    {amenity}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No amenities listed.
+              </p>
+            )}
           </div>
         </div>
 
@@ -219,11 +377,12 @@ export default function RoomDetail() {
                 </p>
 
                 <p className="text-sm text-muted-foreground mt-1 mb-4">
-                  Check back later or explore other options
+                  Check back later or explore other options.
                 </p>
 
                 <Link
-                  to="/rooms"
+                  to={buildRoomsUrl()}
+                  state={bookingState}
                   className="text-sm font-medium text-primary hover:underline"
                 >
                   Browse all rooms
@@ -239,7 +398,7 @@ export default function RoomDetail() {
                       </div>
 
                       <div className="text-sm font-medium text-foreground">
-                        Select date
+                        {checkInLabel}
                       </div>
                     </div>
 
@@ -249,7 +408,7 @@ export default function RoomDetail() {
                       </div>
 
                       <div className="text-sm font-medium text-foreground">
-                        Select date
+                        {checkOutLabel}
                       </div>
                     </div>
                   </div>
@@ -260,7 +419,7 @@ export default function RoomDetail() {
                     </div>
 
                     <div className="text-sm font-medium text-foreground">
-                      Up to {room.maxGuests}
+                      {guests} guest{guests !== 1 ? "s" : ""}
                     </div>
                   </div>
                 </div>
@@ -268,11 +427,19 @@ export default function RoomDetail() {
                 <button
                   onClick={() => {
                     if (!user) {
-                      navigate("/auth");
+                      navigate("/auth", {
+                        state: {
+                          ...bookingState,
+                          returnTo: `/booking/${room.id}`,
+                        },
+                      });
+
                       return;
                     }
 
-                    navigate(`/booking/${room.id}`);
+                    navigate(`/booking/${room.id}`, {
+                      state: bookingState,
+                    });
                   }}
                   className="w-full bg-accent hover:bg-accent/90 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm"
                 >
@@ -286,11 +453,12 @@ export default function RoomDetail() {
                 <div className="mt-4 pt-4 border-t border-border space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
-                      ₱{room.basePrice.toLocaleString()} × 1 night
+                      ₱{room.basePrice.toLocaleString()} × {estimatedNights}{" "}
+                      {estimatedNights === 1 ? "night" : "nights"}
                     </span>
 
                     <span className="text-foreground">
-                      ₱{room.basePrice.toLocaleString()}
+                      ₱{roomTotal.toLocaleString()}
                     </span>
                   </div>
 
@@ -300,10 +468,7 @@ export default function RoomDetail() {
                     </span>
 
                     <span className="text-foreground">
-                      ₱
-                      {Math.round(
-                        room.basePrice * (reservationFeePercent / 100),
-                      ).toLocaleString()}
+                      ₱{reservationFee.toLocaleString()}
                     </span>
                   </div>
 
@@ -311,13 +476,7 @@ export default function RoomDetail() {
                     <span>Estimated total</span>
 
                     <span className="text-accent">
-                      ₱
-                      {(
-                        room.basePrice +
-                        Math.round(
-                          room.basePrice * (reservationFeePercent / 100),
-                        )
-                      ).toLocaleString()}
+                      ₱{estimatedTotal.toLocaleString()}
                     </span>
                   </div>
                 </div>

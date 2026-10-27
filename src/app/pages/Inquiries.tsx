@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Globe,
 } from "lucide-react";
 
 import {
@@ -16,13 +17,13 @@ import {
   addDoc,
   query,
   orderBy,
-  where,
   onSnapshot,
   serverTimestamp,
   Timestamp,
+  doc,
 } from "firebase/firestore";
 
-import { customerDb } from "../components/firebase";
+import { customerDb, db } from "../components/firebase";
 
 interface Reply {
   id: string;
@@ -42,6 +43,22 @@ interface Inquiry {
   createdAt: string;
   replies: Reply[];
 }
+
+interface ResortSettings {
+  resortName: string;
+  phone: string;
+  email: string;
+  address: string;
+  website: string;
+}
+
+const DEFAULT_SETTINGS: ResortSettings = {
+  resortName: "Sabang Beach and Diving Resort",
+  phone: "+63 48 555 0192",
+  email: "hello@sabangresorts.ph",
+  address: "Sabang, Puerto, Philippines 5317",
+  website: "",
+};
 
 const FAQS = [
   {
@@ -68,10 +85,12 @@ const FAQS = [
 
 export default function Inquiries() {
   const { user } = useApp();
-  const uid = user?.id;
+
+  const [settings, setSettings] = useState<ResortSettings>(DEFAULT_SETTINGS);
 
   const [tab, setTab] = useState<"chat" | "form" | "faq">("form");
   const [input, setInput] = useState("");
+
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -88,50 +107,120 @@ export default function Inquiries() {
 
   const [loadingInquiries, setLoadingInquiries] = useState(true);
   const [sending, setSending] = useState(false);
+
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!uid) {
+    const settingsRef = doc(db, "publicSettings", "general");
+
+    const unsubscribe = onSnapshot(
+      settingsRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setSettings(DEFAULT_SETTINGS);
+          return;
+        }
+
+        const data = snapshot.data();
+
+        setSettings({
+          resortName:
+            typeof data.resortName === "string" && data.resortName.trim()
+              ? data.resortName.trim()
+              : DEFAULT_SETTINGS.resortName,
+
+          phone:
+            typeof data.phone === "string"
+              ? data.phone
+              : DEFAULT_SETTINGS.phone,
+
+          email:
+            typeof data.email === "string"
+              ? data.email
+              : DEFAULT_SETTINGS.email,
+
+          address:
+            typeof data.address === "string"
+              ? data.address
+              : DEFAULT_SETTINGS.address,
+
+          website:
+            typeof data.website === "string"
+              ? data.website
+              : typeof data.websiteUrl === "string"
+                ? data.websiteUrl
+                : "",
+        });
+      },
+      (error) => {
+        console.error("Error loading resort settings:", error);
+        setSettings(DEFAULT_SETTINGS);
+      },
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    setFormData((prev) => ({
+      ...prev,
+      name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+      email: user.email || "",
+    }));
+  }, [user]);
+
+  useEffect(() => {
+    if (!user?.id) {
       setInquiries([]);
       setSelectedInquiryId(null);
       setLoadingInquiries(false);
-      setInput("");
       return;
     }
 
     setLoadingInquiries(true);
-    setInquiries([]);
-    setSelectedInquiryId(null);
-    setInput("");
 
     const inquiriesQuery = query(
       collection(customerDb, "Inquiries"),
-      where("userId", "==", uid),
       orderBy("createdAt", "desc"),
     );
 
     const unsubscribe = onSnapshot(
       inquiriesQuery,
       (snapshot) => {
-        const loaded: Inquiry[] = snapshot.docs.map((inquiryDoc) => {
-          const data = inquiryDoc.data();
+        const loaded: Inquiry[] = snapshot.docs
+          .filter((inquiryDoc) => {
+            return inquiryDoc.data().userId === user.id;
+          })
+          .map((inquiryDoc) => {
+            const data = inquiryDoc.data();
 
-          return {
-            id: inquiryDoc.id,
-            userId: String(data.userId || ""),
-            name: String(data.name || ""),
-            email: String(data.email || ""),
-            subject: String(data.subject || ""),
-            message: String(data.message || ""),
-            status: data.status || "new",
-            createdAt: data.createdAt?.toDate
-              ? data.createdAt.toDate().toLocaleString()
-              : "",
-            replies: [],
-          };
-        });
+            return {
+              id: inquiryDoc.id,
+              userId: String(data.userId || ""),
+              name: String(data.name || ""),
+              email: String(data.email || ""),
+              subject: String(data.subject || ""),
+              message: String(data.message || ""),
+              status: data.status || "new",
+              createdAt: data.createdAt?.toDate
+                ? data.createdAt.toDate().toLocaleString()
+                : "",
+              replies: [],
+            };
+          });
 
-        setInquiries(loaded);
+        setInquiries((current) =>
+          loaded.map((inquiry) => {
+            const existing = current.find((item) => item.id === inquiry.id);
+
+            return {
+              ...inquiry,
+              replies: existing?.replies || [],
+            };
+          }),
+        );
 
         setSelectedInquiryId((current) => {
           if (current && loaded.some((inquiry) => inquiry.id === current)) {
@@ -145,49 +234,18 @@ export default function Inquiries() {
       },
       (error) => {
         console.error("Error loading customer inquiries:", error);
-        setInquiries([]);
-        setSelectedInquiryId(null);
         setLoadingInquiries(false);
       },
     );
 
     return () => unsubscribe();
-  }, [uid]);
-
-  useEffect(() => {
-    if (!user) {
-      setFormData((prev) => ({
-        ...prev,
-        name: "",
-        email: "",
-      }));
-      return;
-    }
-
-    setFormData((prev) => ({
-      ...prev,
-      name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
-      email: user.email || "",
-    }));
-  }, [user]);
+  }, [user?.id]);
 
   const selectedInquiry =
-    inquiries.find(
-      (inquiry) => inquiry.id === selectedInquiryId && inquiry.userId === uid,
-    ) || null;
+    inquiries.find((inquiry) => inquiry.id === selectedInquiryId) || null;
 
   useEffect(() => {
-    if (!uid || !selectedInquiryId) {
-      return;
-    }
-
-    const ownsSelectedInquiry = inquiries.some(
-      (inquiry) => inquiry.id === selectedInquiryId && inquiry.userId === uid,
-    );
-
-    if (!ownsSelectedInquiry) {
-      return;
-    }
+    if (!selectedInquiryId) return;
 
     const repliesQuery = query(
       collection(customerDb, "Inquiries", selectedInquiryId, "replies"),
@@ -211,19 +269,19 @@ export default function Inquiries() {
 
         setInquiries((current) =>
           current.map((inquiry) =>
-            inquiry.id === selectedInquiryId && inquiry.userId === uid
+            inquiry.id === selectedInquiryId
               ? { ...inquiry, replies }
               : inquiry,
           ),
         );
       },
       (error) => {
-        console.error("Error loading replies:", error);
+        console.error("Error loading inquiry replies:", error);
       },
     );
 
     return () => unsubscribe();
-  }, [uid, selectedInquiryId, inquiries.length]);
+  }, [selectedInquiryId]);
 
   useEffect(() => {
     if (tab === "chat") {
@@ -233,16 +291,21 @@ export default function Inquiries() {
     }
   }, [selectedInquiry?.replies, tab]);
 
-  const handleFormSubmit = async (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    if (!uid) {
+    if (!user?.id) {
       alert("Please log in before sending an inquiry.");
       return;
     }
 
-    if (!formData.subject.trim() || !formData.message.trim()) {
-      alert("Please complete the subject and message.");
+    if (
+      !formData.name.trim() ||
+      !formData.email.trim() ||
+      !formData.subject.trim() ||
+      !formData.message.trim()
+    ) {
+      alert("Please complete all required fields.");
       return;
     }
 
@@ -250,10 +313,10 @@ export default function Inquiries() {
       setSending(true);
 
       const inquiryRef = await addDoc(collection(customerDb, "Inquiries"), {
-        userId: uid,
+        userId: user.id,
         name: formData.name.trim(),
         email: formData.email.trim(),
-        subject: formData.subject.trim(),
+        subject: formData.subject,
         message: formData.message.trim(),
         status: "new",
         createdAt: serverTimestamp(),
@@ -270,17 +333,13 @@ export default function Inquiries() {
       }));
 
       setTab("chat");
-
-      window.setTimeout(() => {
-        setFormSent(false);
-      }, 5000);
     } catch (error) {
       console.error("Error sending inquiry:", error);
 
       if (error instanceof Error) {
         alert(`Failed to send inquiry: ${error.message}`);
       } else {
-        alert("Failed to send inquiry. Please check the browser console.");
+        alert("Failed to send inquiry. Please try again.");
       }
     } finally {
       setSending(false);
@@ -288,40 +347,38 @@ export default function Inquiries() {
   };
 
   const sendChat = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || sending) return;
 
-    if (!uid) {
-      alert("Please log in first.");
+    if (!selectedInquiry) {
+      alert("Please send an inquiry first.");
       return;
     }
 
-    if (!selectedInquiry || selectedInquiry.userId !== uid) {
-      alert("Please select one of your inquiries first.");
+    if (!user?.id) {
+      alert("Please log in first.");
       return;
     }
 
     try {
       setSending(true);
 
-      const reply = {
-        sender: "customer" as const,
-        senderName:
-          `${user?.firstName || ""} ${user?.lastName || ""}`.trim() ||
-          "Customer",
-        message: input.trim(),
-        userId: uid,
-        createdAt: serverTimestamp(),
-      };
-
       await addDoc(
         collection(customerDb, "Inquiries", selectedInquiry.id, "replies"),
-        reply,
+        {
+          sender: "customer",
+          senderName:
+            `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+            "Customer",
+          message: input.trim(),
+          userId: user.id,
+          createdAt: serverTimestamp(),
+        },
       );
 
       setInput("");
     } catch (error) {
       console.error("Error sending customer reply:", error);
-      alert("Failed to send your message.");
+      alert("Failed to send your message. Please try again.");
     } finally {
       setSending(false);
     }
@@ -329,6 +386,38 @@ export default function Inquiries() {
 
   const inputClass =
     "w-full px-4 py-2.5 rounded-xl border border-border bg-white text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground/60";
+
+  const contactItems = [
+    {
+      icon: Phone,
+      label: "Phone",
+      value: settings.phone,
+      sub: "Mon–Sun · 7 AM – 10 PM",
+      href: settings.phone
+        ? `tel:${settings.phone.replace(/[^\d+]/g, "")}`
+        : undefined,
+    },
+    {
+      icon: Mail,
+      label: "Email",
+      value: settings.email,
+      sub: "Contact us by email",
+      href: settings.email ? `mailto:${settings.email}` : undefined,
+    },
+    {
+      icon: MapPin,
+      label: "Location",
+      value: settings.address,
+      sub: settings.resortName,
+      href: undefined,
+    },
+  ];
+
+  const normalizedWebsite = settings.website
+    ? /^https?:\/\//i.test(settings.website)
+      ? settings.website
+      : `https://${settings.website}`
+    : "";
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -345,7 +434,8 @@ export default function Inquiries() {
         </h1>
 
         <p className="text-muted-foreground text-sm mt-1">
-          We're here to help. Send us a message or check our FAQs.
+          We're here to help. Contact {settings.resortName}, send us a message,
+          or check our FAQs.
         </p>
       </div>
 
@@ -360,40 +450,53 @@ export default function Inquiries() {
             </h2>
 
             <div className="space-y-3">
-              {[
-                {
-                  icon: Phone,
-                  label: "Phone",
-                  value: "+63 48 555 0192",
-                  sub: "Mon–Sun · 7 AM – 10 PM",
-                },
-                {
-                  icon: Mail,
-                  label: "Email",
-                  value: "hello@sabangresorts.ph",
-                  sub: "Response within 2 hours",
-                },
-                {
-                  icon: MapPin,
-                  label: "Location",
-                  value: "Sabang, Puerto",
-                  sub: "Philippines 5317",
-                },
-              ].map((item) => (
+              {contactItems.map((item) => (
                 <div key={item.label} className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
                     <item.icon className="w-4 h-4 text-white" />
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-xs text-white/60">{item.label}</div>
-                    <div className="text-sm font-medium text-white">
-                      {item.value}
-                    </div>
+
+                    {item.href && item.value ? (
+                      <a
+                        href={item.href}
+                        className="text-sm font-medium text-white hover:underline break-words"
+                      >
+                        {item.value}
+                      </a>
+                    ) : (
+                      <div className="text-sm font-medium text-white break-words">
+                        {item.value || "Not provided"}
+                      </div>
+                    )}
+
                     <div className="text-xs text-white/50">{item.sub}</div>
                   </div>
                 </div>
               ))}
+
+              {normalizedWebsite && (
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+                    <Globe className="w-4 h-4 text-white" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="text-xs text-white/60">Website</div>
+
+                    <a
+                      href={normalizedWebsite}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-medium text-white hover:underline break-words"
+                    >
+                      {settings.website}
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -406,9 +509,25 @@ export default function Inquiries() {
             </h3>
 
             <div className="bg-muted rounded-xl overflow-hidden h-40 flex items-center justify-center text-muted-foreground text-sm">
-              <div className="text-center">
+              <div className="text-center px-4">
                 <MapPin className="w-8 h-8 mx-auto mb-2 text-primary" />
-                <p className="text-xs">Sabang, Puerto</p>
+
+                <p className="text-sm font-medium text-foreground">
+                  {settings.resortName}
+                </p>
+
+                <p className="text-xs mt-1">{settings.address}</p>
+
+                {normalizedWebsite && (
+                  <a
+                    href={normalizedWebsite}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block mt-2 text-xs text-primary hover:underline"
+                  >
+                    Visit website
+                  </a>
+                )}
               </div>
             </div>
           </div>
@@ -423,6 +542,7 @@ export default function Inquiries() {
             ].map((t) => (
               <button
                 key={t.id}
+                type="button"
                 onClick={() => setTab(t.id as typeof tab)}
                 className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors ${
                   tab === t.id
@@ -451,6 +571,25 @@ export default function Inquiries() {
                   <p className="text-sm text-muted-foreground">
                     Your inquiry has been sent to our receptionist.
                   </p>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormSent(false);
+                      setTab("chat");
+                    }}
+                    className="mt-4 text-sm text-primary font-medium hover:underline"
+                  >
+                    View conversation
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFormSent(false)}
+                    className="block mx-auto mt-2 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Send another inquiry
+                  </button>
                 </div>
               ) : (
                 <form onSubmit={handleFormSubmit} className="space-y-4">
@@ -568,8 +707,9 @@ export default function Inquiries() {
 
                 <div>
                   <div className="text-sm font-semibold text-foreground">
-                    Resort Reception
+                    {settings.resortName} Reception
                   </div>
+
                   <div className="text-xs text-muted-foreground">
                     Your inquiry conversation
                   </div>
@@ -588,7 +728,9 @@ export default function Inquiries() {
                 ) : (
                   <select
                     value={selectedInquiryId || ""}
-                    onChange={(e) => setSelectedInquiryId(e.target.value)}
+                    onChange={(e) =>
+                      setSelectedInquiryId(e.target.value || null)
+                    }
                     className="w-full px-3 py-2 rounded-xl border border-border text-sm bg-white"
                   >
                     {inquiries.map((inquiry) => (
@@ -605,6 +747,7 @@ export default function Inquiries() {
                   <div className="h-full flex items-center justify-center text-center">
                     <div>
                       <MessageCircle className="w-10 h-10 mx-auto mb-2 text-muted-foreground opacity-40" />
+
                       <p className="text-sm text-muted-foreground">
                         No conversation selected.
                       </p>
@@ -641,7 +784,7 @@ export default function Inquiries() {
 
                         <div>
                           <div
-                            className={`max-w-xs px-3 py-2 rounded-2xl text-xs ${
+                            className={`max-w-xs px-3 py-2 rounded-2xl text-xs break-words ${
                               reply.sender === "customer"
                                 ? "bg-primary text-white rounded-br-sm"
                                 : "bg-muted text-foreground rounded-bl-sm"
@@ -657,7 +800,7 @@ export default function Inquiries() {
                                 : "text-left"
                             }`}
                           >
-                            {reply.createdAt
+                            {reply.createdAt?.toDate
                               ? reply.createdAt
                                   .toDate()
                                   .toLocaleTimeString("en-US", {
@@ -682,7 +825,8 @@ export default function Inquiries() {
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      sendChat();
+                      e.preventDefault();
+                      void sendChat();
                     }
                   }}
                   disabled={!selectedInquiry || sending}
@@ -695,9 +839,11 @@ export default function Inquiries() {
                 />
 
                 <button
-                  onClick={sendChat}
+                  type="button"
+                  onClick={() => void sendChat()}
                   disabled={!input.trim() || !selectedInquiry || sending}
                   className="w-9 h-9 bg-primary text-white rounded-xl flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  aria-label="Send message"
                 >
                   <Send className="w-4 h-4" />
                 </button>
@@ -713,6 +859,7 @@ export default function Inquiries() {
                   className="bg-white rounded-xl border border-border overflow-hidden"
                 >
                   <button
+                    type="button"
                     onClick={() => setOpenFaq(openFaq === i ? null : i)}
                     className="w-full flex items-center justify-between p-4 text-left hover:bg-muted transition-colors"
                   >
@@ -738,7 +885,11 @@ export default function Inquiries() {
               <div className="bg-secondary rounded-xl p-4 text-center text-sm text-muted-foreground">
                 Didn't find your answer?{" "}
                 <button
-                  onClick={() => setTab("form")}
+                  type="button"
+                  onClick={() => {
+                    setFormSent(false);
+                    setTab("form");
+                  }}
                   className="text-primary font-medium hover:text-accent transition-colors"
                 >
                   Send us a message

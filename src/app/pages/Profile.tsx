@@ -36,10 +36,6 @@ import {
   updateProfile as updateFirebaseProfile,
 } from "firebase/auth";
 
-/* =========================================================
-   TYPES
-========================================================= */
-
 type ProfileForm = {
   firstName: string;
   lastName: string;
@@ -74,12 +70,6 @@ type Booking = {
   [key: string]: any;
 };
 
-/* =========================================================
-   BOOKING STATUS HELPERS
-========================================================= */
-
-// Normalize statuses so different capitalization and formatting
-// will not affect the booking statistics.
 function normalizeStatus(value: unknown): string {
   return String(value ?? "")
     .trim()
@@ -87,7 +77,6 @@ function normalizeStatus(value: unknown): string {
     .replace(/[\s_-]+/g, "");
 }
 
-// Get the total booking price.
 function getBookingTotal(booking: Booking): number {
   const value =
     booking.totalPrice ?? booking.totalAmount ?? booking.grandTotal ?? 0;
@@ -97,7 +86,6 @@ function getBookingTotal(booking: Booking): number {
   return Number.isFinite(amount) ? amount : 0;
 }
 
-// Get the total amount paid.
 function getBookingAmountPaid(booking: Booking): number {
   const value =
     booking.amountPaid ?? booking.paidAmount ?? booking.totalPaid ?? 0;
@@ -107,7 +95,6 @@ function getBookingAmountPaid(booking: Booking): number {
   return Number.isFinite(amount) ? amount : 0;
 }
 
-// Check if the booking is fully paid.
 function isFullyPaid(booking: Booking): boolean {
   const paymentStatus = normalizeStatus(booking.paymentStatus);
 
@@ -127,22 +114,15 @@ function isFullyPaid(booking: Booking): boolean {
   const totalPrice = getBookingTotal(booking);
   const amountPaid = getBookingAmountPaid(booking);
 
-  // Only use the amount comparison when the total is valid.
   return totalPrice > 0 && amountPaid >= totalPrice;
 }
 
-// Check if the booking is confirmed.
 function isConfirmedBooking(booking: Booking): boolean {
   const status = normalizeStatus(booking.status);
 
   return ["confirmed", "reserved", "reservationconfirmed"].includes(status);
 }
 
-// Check whether the booking should count as completed.
-//
-// A booking counts when:
-// 1. The booking has already been completed or checked out.
-// 2. The booking is confirmed and fully paid.
 function isCompletedBooking(booking: Booking): boolean {
   const status = normalizeStatus(booking.status);
 
@@ -160,7 +140,6 @@ function isCompletedBooking(booking: Booking): boolean {
   return isConfirmedBooking(booking) && isFullyPaid(booking);
 }
 
-// Check whether the booking should count toward Total Spent.
 function isCountedAsSpent(booking: Booking): boolean {
   const status = normalizeStatus(booking.status);
 
@@ -173,10 +152,6 @@ function isCountedAsSpent(booking: Booking): boolean {
 
   return isFullyPaid(booking) || completedStatuses.includes(status);
 }
-
-/* =========================================================
-   AUTHENTICATION
-========================================================= */
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useApp();
@@ -198,10 +173,6 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/* =========================================================
-   PROFILE COMPONENT
-========================================================= */
-
 export default function Profile() {
   return (
     <RequireAuth>
@@ -210,20 +181,12 @@ export default function Profile() {
   );
 }
 
-/* =========================================================
-   PROFILE CONTENT
-========================================================= */
-
 function ProfileContent() {
   const { user, updateProfile, logout } = useApp();
 
   const navigate = useNavigate();
 
   const currentUser = auth.currentUser;
-
-  /* =======================================================
-     STATES
-  ======================================================= */
 
   const [bookings, setBookings] = useState<Booking[]>([]);
 
@@ -260,10 +223,6 @@ function ProfileContent() {
 
   const [pwdLoading, setPwdLoading] = useState(false);
 
-  /* =======================================================
-     SYNC PROFILE DATA
-  ======================================================= */
-
   useEffect(() => {
     setForm({
       firstName: user?.firstName ?? "",
@@ -282,10 +241,6 @@ function ProfileContent() {
     currentUser?.email,
     currentUser?.photoURL,
   ]);
-
-  /* =======================================================
-     REAL-TIME BOOKINGS
-  ======================================================= */
 
   useEffect(() => {
     if (!currentUser) {
@@ -317,8 +272,6 @@ function ProfileContent() {
 
         setLoadingBookings(false);
 
-        // TEMPORARY DEBUGGING:
-        // Check the actual status and paymentStatus values.
         console.log(
           "Customer bookings:",
           bookingData.map((booking) => ({
@@ -344,36 +297,22 @@ function ProfileContent() {
     };
   }, [currentUser]);
 
-  /* =======================================================
-     BOOKING STATISTICS
-  ======================================================= */
-
   const totalBookings = bookings.length;
 
   const pendingBookings = bookings.filter(
     (booking) => normalizeStatus(booking.status) === "pending",
   ).length;
 
-  // Count completed stays and confirmed fully paid reservations.
   const completedBookings = bookings.filter(isCompletedBooking).length;
 
-  // Calculate total spent without counting a booking twice.
   const totalSpent = bookings
     .filter(isCountedAsSpent)
     .reduce((total, booking) => {
       return total + getBookingTotal(booking);
     }, 0);
 
-  /* =======================================================
-     STYLING
-  ======================================================= */
-
   const inputClass =
     "w-full px-4 py-2.5 rounded-xl border border-border bg-white text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary";
-
-  /* =======================================================
-     SAVE PROFILE
-  ======================================================= */
 
   const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -417,20 +356,17 @@ function ProfileContent() {
         phone,
       };
 
-      // Update Firebase Authentication email.
       if (email !== (currentUser.email ?? "").toLowerCase()) {
         await updateEmail(currentUser, email);
       }
 
       const displayName = `${firstName} ${lastName}`.trim();
 
-      // Update Firebase Authentication profile.
       await updateFirebaseProfile(currentUser, {
         displayName,
         photoURL: avatar || null,
       });
 
-      // Update Firestore profile.
       const userDocRef = doc(customerDb, "Users", currentUser.uid);
 
       const userDocSnapshot = await getDoc(userDocRef);
@@ -464,7 +400,6 @@ function ProfileContent() {
         }
       }
 
-      // Update application context.
       await Promise.resolve(
         updateProfile({
           ...updatedProfile,
@@ -501,10 +436,6 @@ function ProfileContent() {
       setSaving(false);
     }
   };
-
-  /* =======================================================
-     CHANGE PASSWORD
-  ======================================================= */
 
   const handlePasswordChange = async (
     event: React.FormEvent<HTMLFormElement>,
@@ -594,10 +525,6 @@ function ProfileContent() {
     }
   };
 
-  /* =======================================================
-     CLOUDINARY PROFILE IMAGE UPLOAD
-  ======================================================= */
-
   const handleAvatarSelect = async (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
@@ -605,7 +532,6 @@ function ProfileContent() {
 
     const file = input.files?.[0];
 
-    // Allow the same file to be selected again.
     input.value = "";
 
     if (!file) {
@@ -675,15 +601,12 @@ function ProfileContent() {
 
       const imageUrl = result.secure_url;
 
-      // Update image preview.
       setAvatar(imageUrl);
 
-      // Update Firebase Authentication.
       await updateFirebaseProfile(currentUser, {
         photoURL: imageUrl,
       });
 
-      // Update Firestore.
       const userDocRef = doc(customerDb, "Users", currentUser.uid);
 
       const userDocSnapshot = await getDoc(userDocRef);
@@ -724,7 +647,6 @@ function ProfileContent() {
         }
       }
 
-      // Update application context.
       await Promise.resolve(
         updateProfile({
           ...form,
@@ -744,10 +666,6 @@ function ProfileContent() {
     }
   };
 
-  /* =======================================================
-     PROFILE DISPLAY DATA
-  ======================================================= */
-
   const memberSince = user?.memberSince || "—";
 
   const avatarSrc =
@@ -758,14 +676,8 @@ function ProfileContent() {
       `${form.firstName} ${form.lastName}`.trim() || "Guest",
     )}&background=E8EEF5&color=0A2540`;
 
-  /* =======================================================
-     RENDER
-  ======================================================= */
-
   return (
     <div className="max-w-4xl mx-auto px-4 py-10">
-      {/* PAGE HEADER */}
-
       <div className="mb-8">
         <h1
           style={{
@@ -783,17 +695,9 @@ function ProfileContent() {
         </p>
       </div>
 
-      {/* MAIN GRID */}
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* =================================================
-            LEFT PROFILE SIDEBAR
-        ================================================= */}
-
         <div className="lg:col-span-1">
           <div className="bg-white rounded-2xl p-6 border border-border text-center">
-            {/* PROFILE IMAGE */}
-
             <div className="relative inline-block mb-4">
               <img
                 src={avatarSrc}
@@ -835,8 +739,6 @@ function ProfileContent() {
               </p>
             )}
 
-            {/* NAME */}
-
             <h2
               className="font-semibold text-foreground"
               style={{
@@ -848,14 +750,10 @@ function ProfileContent() {
 
             <p className="text-muted-foreground text-xs mt-0.5">{form.email}</p>
 
-            {/* MEMBER SINCE */}
-
             <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
               <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
               Member since {memberSince}
             </div>
-
-            {/* NAVIGATION */}
 
             <div className="mt-6 space-y-2">
               {[
@@ -888,8 +786,6 @@ function ProfileContent() {
                 </button>
               ))}
 
-              {/* SIGN OUT */}
-
               <button
                 type="button"
                 onClick={async () => {
@@ -908,18 +804,8 @@ function ProfileContent() {
           </div>
         </div>
 
-        {/* =================================================
-            RIGHT CONTENT
-        ================================================= */}
-
         <div className="lg:col-span-2">
-          {/* =================================================
-              BOOKING STATISTICS
-          ================================================= */}
-
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            {/* TOTAL BOOKINGS */}
-
             <div className="bg-white rounded-2xl border border-border p-4">
               <div className="text-xs text-muted-foreground">
                 Total Bookings
@@ -930,8 +816,6 @@ function ProfileContent() {
               </div>
             </div>
 
-            {/* PENDING */}
-
             <div className="bg-white rounded-2xl border border-border p-4">
               <div className="text-xs text-muted-foreground">Pending</div>
 
@@ -940,8 +824,6 @@ function ProfileContent() {
               </div>
             </div>
 
-            {/* COMPLETED */}
-
             <div className="bg-white rounded-2xl border border-border p-4">
               <div className="text-xs text-muted-foreground">Completed</div>
 
@@ -949,8 +831,6 @@ function ProfileContent() {
                 {loadingBookings ? "..." : completedBookings}
               </div>
             </div>
-
-            {/* TOTAL SPENT */}
 
             <div className="bg-white rounded-2xl border border-border p-4">
               <div className="text-xs text-muted-foreground">Total Spent</div>
@@ -962,10 +842,6 @@ function ProfileContent() {
               </div>
             </div>
           </div>
-
-          {/* =================================================
-              PERSONAL INFORMATION
-          ================================================= */}
 
           {tab === "info" ? (
             <form
@@ -982,8 +858,6 @@ function ProfileContent() {
                 Personal Information
               </h2>
 
-              {/* ERROR */}
-
               {profileError && (
                 <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm mb-5">
                   <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -992,16 +866,12 @@ function ProfileContent() {
                 </div>
               )}
 
-              {/* SUCCESS */}
-
               {saved && (
                 <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm mb-5">
                   <CheckCircle2 className="w-4 h-4" />
                   Profile updated successfully!
                 </div>
               )}
-
-              {/* FIRST NAME AND LAST NAME */}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
@@ -1046,8 +916,6 @@ function ProfileContent() {
                 </div>
               </div>
 
-              {/* EMAIL */}
-
               <div className="mb-4">
                 <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5 text-muted-foreground" />
@@ -1069,8 +937,6 @@ function ProfileContent() {
                 />
               </div>
 
-              {/* PHONE */}
-
               <div className="mb-4">
                 <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
                   <Phone className="w-3.5 h-3.5 text-muted-foreground" />
@@ -1091,16 +957,12 @@ function ProfileContent() {
                 />
               </div>
 
-              {/* ACCOUNT DETAILS */}
-
               <div className="pt-4 border-t border-border">
                 <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
                   Account Details
                 </h3>
 
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                  {/* MEMBER SINCE */}
-
                   <div className="bg-muted rounded-xl p-3">
                     <div className="text-xs text-muted-foreground">
                       Member Since
@@ -1110,8 +972,6 @@ function ProfileContent() {
                       {memberSince}
                     </div>
                   </div>
-
-                  {/* ACCOUNT STATUS */}
 
                   <div className="bg-muted rounded-xl p-3">
                     <div className="text-xs text-muted-foreground">
@@ -1126,8 +986,6 @@ function ProfileContent() {
                 </div>
               </div>
 
-              {/* SAVE BUTTON */}
-
               <div className="flex justify-end mt-5">
                 <button
                   type="submit"
@@ -1141,10 +999,6 @@ function ProfileContent() {
               </div>
             </form>
           ) : (
-            /* =================================================
-               CHANGE PASSWORD
-            ================================================= */
-
             <form
               onSubmit={handlePasswordChange}
               className="bg-white rounded-2xl p-6 border border-border"
@@ -1160,22 +1014,16 @@ function ProfileContent() {
                 Change Password
               </h2>
 
-              {/* PASSWORD SUCCESS */}
-
               {pwdMsg === "success" ? (
                 <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm mb-5">
                   <CheckCircle2 className="w-4 h-4" />
                   Password changed successfully!
                 </div>
               ) : pwdMsg ? (
-                /* PASSWORD ERROR */
-
                 <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm mb-5">
                   {pwdMsg}
                 </div>
               ) : null}
-
-              {/* PASSWORD INPUTS */}
 
               <div className="space-y-4">
                 {[
@@ -1219,14 +1067,10 @@ function ProfileContent() {
                 ))}
               </div>
 
-              {/* PASSWORD REQUIREMENTS */}
-
               <div className="mt-4 p-3 bg-secondary rounded-xl text-xs text-primary">
                 Password must be at least 8 characters long and contain at least
                 one letter and one number.
               </div>
-
-              {/* UPDATE PASSWORD BUTTON */}
 
               <div className="flex justify-end mt-5">
                 <button

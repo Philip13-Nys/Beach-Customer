@@ -18,6 +18,7 @@ import {
   Phone,
   Mail,
 } from "lucide-react";
+import { useResortSettings } from "../../hooks/useResortSettings";
 
 interface Room {
   id: string;
@@ -92,8 +93,13 @@ interface FirestoreBooking {
   serviceId?: string;
   packageId?: string;
   status?: string;
+  userId?: string;
+  email?: string;
+  customerEmail?: string;
   [key: string]: unknown;
 }
+
+const FEATURE_ICONS = [Anchor, Shield, Award, Waves];
 
 function StarRating({ rating }: { rating: number }) {
   return (
@@ -112,38 +118,10 @@ function StarRating({ rating }: { rating: number }) {
   );
 }
 
-const getRoomReviewStats = (
-  room: Room,
-  reviews: Review[],
-): { averageRating: number; reviewCount: number } => {
-  const roomReviews = reviews.filter((review) => {
-    const reviewedRoomName = (review.roomName || "").trim().toLowerCase();
-    const currentRoomName = room.name.trim().toLowerCase();
-
-    return reviewedRoomName === currentRoomName;
-  });
-
-  const validRatings = roomReviews
-    .map((review) => Number(review.rating))
-    .filter((rating) => Number.isFinite(rating) && rating >= 1 && rating <= 5);
-
-  return {
-    averageRating:
-      validRatings.length > 0
-        ? validRatings.reduce((sum, rating) => sum + rating, 0) /
-          validRatings.length
-        : 0,
-    reviewCount: validRatings.length,
-  };
-};
-
-const toLocalDateString = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-};
+const toLocalDateString = (date: Date): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
 
 const getDateOnly = (value: unknown): string => {
   if (!value) return "";
@@ -182,10 +160,17 @@ const getDateOnly = (value: unknown): string => {
 };
 
 const getCalendarDays = (month: Date) => {
-  const year = month.getFullYear();
-  const monthIndex = month.getMonth();
-  const startOffset = new Date(year, monthIndex, 1).getDay();
-  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const startOffset = new Date(
+    month.getFullYear(),
+    month.getMonth(),
+    1,
+  ).getDay();
+
+  const daysInMonth = new Date(
+    month.getFullYear(),
+    month.getMonth() + 1,
+    0,
+  ).getDate();
 
   return [
     ...Array.from({ length: startOffset }, () => null),
@@ -221,8 +206,6 @@ const isCancelledBooking = (status = "") =>
 const isRoomBookable = (room: FirestoreRoom): boolean => {
   if (room.isAvailable === false) return false;
 
-  const status = normalize(room.status);
-
   return ![
     "maintenance",
     "inactive",
@@ -230,7 +213,7 @@ const isRoomBookable = (room: FirestoreRoom): boolean => {
     "unavailable",
     "out of service",
     "out-of-service",
-  ].includes(status);
+  ].includes(normalize(room.status));
 };
 
 const isRoomBooking = (booking: FirestoreBooking): boolean => {
@@ -299,30 +282,17 @@ const getBookedCount = (
   roomType: Room,
   bookings: FirestoreBooking[],
   date: string,
-): number => {
-  return bookings.reduce((total, booking) => {
-    if (isCancelledBooking(String(booking.status ?? ""))) {
-      return total;
-    }
-
-    if (!isRoomBooking(booking)) {
-      return total;
-    }
-
-    if (!matchesRoomType(booking, roomType)) {
-      return total;
-    }
+): number =>
+  bookings.reduce((total, booking) => {
+    if (isCancelledBooking(String(booking.status ?? ""))) return total;
+    if (!isRoomBooking(booking)) return total;
+    if (!matchesRoomType(booking, roomType)) return total;
 
     const checkInDate = getDateOnly(booking.checkIn);
     const checkOutDate = getDateOnly(booking.checkOut);
 
-    if (!checkInDate || !checkOutDate) {
-      return total;
-    }
-
-    if (!(checkInDate <= date && checkOutDate > date)) {
-      return total;
-    }
+    if (!checkInDate || !checkOutDate) return total;
+    if (!(checkInDate <= date && checkOutDate > date)) return total;
 
     const rawQuantity =
       booking.roomQuantity ?? booking.roomsBooked ?? booking.quantity ?? 1;
@@ -333,7 +303,6 @@ const getBookedCount = (
 
     return total + roomsBooked;
   }, 0);
-};
 
 const isRoomTypeAvailableForStay = (
   roomType: Room,
@@ -350,7 +319,6 @@ const isRoomTypeAvailableForStay = (
   }
 
   const inventoryCount = getInventoryCount(roomType, inventoryRooms);
-
   if (inventoryCount <= 0) return false;
 
   const cursor = new Date(`${checkIn}T00:00:00`);
@@ -365,10 +333,11 @@ const isRoomTypeAvailableForStay = (
   }
 
   while (cursor < end) {
-    const date = toLocalDateString(cursor);
-    const bookedCount = getBookedCount(roomType, bookings, date);
-
-    if (inventoryCount - bookedCount <= 0) {
+    if (
+      inventoryCount -
+        getBookedCount(roomType, bookings, toLocalDateString(cursor)) <=
+      0
+    ) {
       return false;
     }
 
@@ -401,23 +370,16 @@ const mapRoomType = (id: string, data: Record<string, unknown>): Room => ({
 const mapInventoryRoom = (
   id: string,
   data: Record<string, unknown>,
-): FirestoreRoom =>
-  ({
-    ...data,
-    id,
-  }) as FirestoreRoom;
+): FirestoreRoom => ({ ...data, id }) as FirestoreRoom;
 
 const mapBooking = (
   id: string,
   data: Record<string, unknown>,
-): FirestoreBooking =>
-  ({
-    ...data,
-    id,
-  }) as FirestoreBooking;
+): FirestoreBooking => ({ ...data, id }) as FirestoreBooking;
 
 export default function Landing() {
   const navigate = useNavigate();
+  const { settings: resortSettings } = useResortSettings();
 
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
@@ -443,10 +405,52 @@ export default function Landing() {
 
   const todayString = toLocalDateString(new Date());
 
+  const resortName =
+    resortSettings.resortName?.trim() || "Sabang Beach and Diving Resort";
+
+  const resortDescription =
+    resortSettings.description?.trim() ||
+    "A tropical getaway offering comfortable accommodations, beautiful beaches, and memorable resort activities.";
+
+  const features = resortSettings.features;
+
+  // Always preserve stay details in the URL, even if router state is lost
+  // after a refresh or the guest opens the link directly.
+  const buildStayParams = (
+    checkInDate: string,
+    checkOutDate: string,
+    guestCount: string | number,
+  ) => {
+    const params = new URLSearchParams();
+
+    if (checkInDate) params.set("checkIn", checkInDate);
+    if (checkOutDate) params.set("checkOut", checkOutDate);
+
+    params.set("guests", String(guestCount || 2));
+
+    return params;
+  };
+
+  const stayState = {
+    checkIn,
+    checkOut,
+    guests: Number(guests),
+  };
+
+  const buildRoomListUrl = () => {
+    const params = buildStayParams(checkIn, checkOut, guests);
+    return `/rooms?${params.toString()}`;
+  };
+
+  const buildRoomDetailUrl = (roomId: string) => {
+    const params = buildStayParams(checkIn, checkOut, guests);
+    return `/rooms/${encodeURIComponent(roomId)}?${params.toString()}`;
+  };
+
   useEffect(() => {
     let isMounted = true;
 
-    const loadLandingData = async () => {
+    async function loadLandingData() {
       try {
         const [
           roomTypesSnapshot,
@@ -477,18 +481,26 @@ export default function Landing() {
         setRooms(allRoomTypes.slice(0, 6));
 
         setServices(
-          servicesSnapshot.docs.map((docSnap) => ({
-            ...docSnap.data(),
-            id: docSnap.id,
-          })) as Service[],
+          servicesSnapshot.docs.map((docSnap) => {
+            const data = docSnap.data();
+
+            return {
+              id: docSnap.id,
+              name: String(data.name ?? data.serviceName ?? data.title ?? ""),
+              category: String(data.category ?? data.type ?? "Activity"),
+              image: String(data.image ?? data.imageUrl ?? ""),
+              price: Number(data.price ?? data.basePrice ?? 0),
+              duration: String(data.duration ?? ""),
+            };
+          }),
         );
 
         setReviews(
           reviewsSnapshot.docs
             .map((docSnap) => {
               const data = docSnap.data();
-
               const createdAt = data.createdAt;
+
               const reviewDate =
                 typeof data.date === "string"
                   ? data.date
@@ -500,8 +512,9 @@ export default function Landing() {
                     : "";
 
               return {
-                ...data,
                 id: docSnap.id,
+                bookingId: data.bookingId,
+                bookingRef: data.bookingRef,
                 guestName: String(data.guestName ?? "Guest"),
                 guestAvatar:
                   typeof data.guestAvatar === "string"
@@ -516,6 +529,7 @@ export default function Landing() {
                 rating: Number(data.rating ?? 0),
                 comment: String(data.comment ?? ""),
                 date: reviewDate,
+                status: data.status,
                 sortDate:
                   createdAt &&
                   typeof createdAt === "object" &&
@@ -525,8 +539,12 @@ export default function Landing() {
                     : Date.parse(reviewDate) || 0,
               };
             })
-            .sort((a, b) => b.sortDate - a.sortDate)
-            .map(({ sortDate, ...review }) => review) as Review[],
+            .sort(
+              (a, b) =>
+                Number((b as Review & { sortDate?: number }).sortDate ?? 0) -
+                Number((a as Review & { sortDate?: number }).sortDate ?? 0),
+            )
+            .map(({ sortDate: _sortDate, ...review }) => review as Review),
         );
 
         setInventoryRooms(
@@ -550,11 +568,9 @@ export default function Landing() {
           setAvailabilityError("Unable to load room availability right now.");
         }
       } finally {
-        if (isMounted) {
-          setCalendarDataLoading(false);
-        }
+        if (isMounted) setCalendarDataLoading(false);
       }
-    };
+    }
 
     void loadLandingData();
 
@@ -649,8 +665,6 @@ export default function Landing() {
       setInventoryRooms(currentInventory);
       setBookings(currentBookings);
 
-      const guestCount = Number(guests);
-
       const availableRoomTypeIds = currentRoomTypes
         .filter((roomType) =>
           isRoomTypeAvailableForStay(
@@ -659,7 +673,7 @@ export default function Landing() {
             currentBookings,
             checkIn,
             checkOut,
-            guestCount,
+            Number(guests),
           ),
         )
         .map((roomType) => roomType.id);
@@ -671,16 +685,19 @@ export default function Landing() {
         return;
       }
 
-      const params = new URLSearchParams();
-      params.set("checkIn", checkIn);
-      params.set("checkOut", checkOut);
-      params.set("guests", guests);
+      const params = buildStayParams(checkIn, checkOut, guests);
       params.set("availableRoomTypes", availableRoomTypeIds.join(","));
 
-      navigate(`/rooms?${params.toString()}`);
+      navigate(`/rooms?${params.toString()}`, {
+        state: {
+          checkIn,
+          checkOut,
+          guests: Number(guests),
+          availableRoomTypes: availableRoomTypeIds,
+        },
+      });
     } catch (error) {
       console.error("Error checking room availability:", error);
-
       setAvailabilityError(
         "Unable to check room availability. Please try again.",
       );
@@ -688,6 +705,25 @@ export default function Landing() {
       setCheckingAvailability(false);
     }
   };
+
+  const validRatings = reviews
+    .map((review) => Number(review.rating))
+    .filter((rating) => Number.isFinite(rating) && rating >= 1 && rating <= 5);
+
+  const averageRating =
+    validRatings.length > 0
+      ? validRatings.reduce((sum, rating) => sum + rating, 0) /
+        validRatings.length
+      : 0;
+
+  const guestCount = new Set(
+    bookings
+      .filter((booking) => !isCancelledBooking(String(booking.status ?? "")))
+      .map((booking) =>
+        normalize(booking.userId ?? booking.email ?? booking.customerEmail),
+      )
+      .filter(Boolean),
+  ).size;
 
   return (
     <div className="bg-background">
@@ -707,7 +743,7 @@ export default function Landing() {
             <div className="max-w-3xl">
               <div className="flex items-center gap-2 mb-5">
                 <span className="px-3 py-1 bg-accent/20 border border-accent/40 rounded-full text-accent text-xs font-medium uppercase tracking-wider">
-                  Puerto, Philippines
+                  {resortSettings.address || resortName}
                 </span>
               </div>
 
@@ -719,14 +755,13 @@ export default function Landing() {
                   fontWeight: 700,
                 }}
               >
-                Dive Into Paradise.
+                {resortName}
                 <br />
-                <em>Wake Up to the Sea.</em>
+                <em>Dive Into Paradise.</em>
               </h1>
 
-              <p className="text-white/80 text-lg mb-10 max-w-xl leading-relaxed">
-                World-class diving, pristine white sand beaches, and luxurious
-                island accommodations — all in one breathtaking destination.
+              <p className="text-white/80 text-lg mb-10 max-w-xl leading-relaxed whitespace-pre-line">
+                {resortDescription}
               </p>
             </div>
 
@@ -744,7 +779,6 @@ export default function Landing() {
                       Make a reservation
                     </h3>
                   </div>
-
                   <div className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center">
                     <CalendarDays className="w-5 h-5" />
                   </div>
@@ -757,7 +791,6 @@ export default function Landing() {
                         <div className="w-10 h-10 rounded-xl bg-orange-50 text-accent flex items-center justify-center">
                           <CalendarDays className="w-5 h-5" />
                         </div>
-
                         <div>
                           <p className="text-[10px] uppercase tracking-wider text-accent font-medium">
                             Select your stay
@@ -785,7 +818,6 @@ export default function Landing() {
                         >
                           <ChevronLeft className="w-4 h-4" />
                         </button>
-
                         <button
                           type="button"
                           onClick={() => changeCalendarMonth(1)}
@@ -814,7 +846,6 @@ export default function Landing() {
                             : "Select date"}
                         </p>
                       </div>
-
                       <div className="rounded-xl bg-muted/60 p-3">
                         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
                           Check-out
@@ -859,13 +890,14 @@ export default function Landing() {
                           );
                         }
 
-                        const date = new Date(
-                          calendarMonth.getFullYear(),
-                          calendarMonth.getMonth(),
-                          day,
+                        const dateString = toLocalDateString(
+                          new Date(
+                            calendarMonth.getFullYear(),
+                            calendarMonth.getMonth(),
+                            day,
+                          ),
                         );
 
-                        const dateString = toLocalDateString(date);
                         const isPast = dateString < todayString;
                         const isCheckIn = dateString === checkIn;
                         const isCheckOut = dateString === checkOut;
@@ -973,15 +1005,14 @@ export default function Landing() {
                   <label className="text-xs text-muted-foreground uppercase tracking-wider font-medium block mb-2">
                     Guests
                   </label>
-
                   <select
                     value={guests}
-                    onChange={(e) => setGuests(e.target.value)}
+                    onChange={(event) => setGuests(event.target.value)}
                     className="w-full px-3 py-3 rounded-xl border border-border bg-muted/40 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   >
-                    {[1, 2, 3, 4, 5, 6].map((n) => (
-                      <option key={n} value={n}>
-                        {n} {n === 1 ? "Guest" : "Guests"}
+                    {[1, 2, 3, 4, 5, 6].map((number) => (
+                      <option key={number} value={number}>
+                        {number} {number === 1 ? "Guest" : "Guests"}
                       </option>
                     ))}
                   </select>
@@ -1025,47 +1056,12 @@ export default function Landing() {
                 value: String(availabilityRoomTypes.length),
                 label: "Room Types",
               },
+              { value: String(services.length), label: "Activities" },
+              { value: String(guestCount), label: "Guests with Bookings" },
               {
-                value: String(services.length),
-                label: "Activities",
-              },
-              {
-                value: String(
-                  new Set(
-                    bookings
-                      .filter(
-                        (booking) =>
-                          !isCancelledBooking(String(booking.status ?? "")),
-                      )
-                      .map((booking) =>
-                        normalize(
-                          booking.userId ??
-                            booking.email ??
-                            booking.customerEmail,
-                        ),
-                      )
-                      .filter(Boolean),
-                  ).size,
-                ),
-                label: "Guests with Bookings",
-              },
-              {
-                value: (() => {
-                  const ratings = reviews
-                    .map((review) => Number(review.rating))
-                    .filter(
-                      (rating) =>
-                        Number.isFinite(rating) && rating >= 1 && rating <= 5,
-                    );
-
-                  if (ratings.length === 0) return "N/A";
-
-                  const average =
-                    ratings.reduce((sum, rating) => sum + rating, 0) /
-                    ratings.length;
-
-                  return `${average.toFixed(1)}★`;
-                })(),
+                value: validRatings.length
+                  ? `${averageRating.toFixed(1)}★`
+                  : "N/A",
                 label: "Average Guest Rating",
               },
             ].map((stat) => (
@@ -1102,9 +1098,9 @@ export default function Landing() {
               Your Home By the Sea
             </h2>
           </div>
-
           <Link
-            to="/rooms"
+            to={buildRoomListUrl()}
+            state={stayState}
             className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-primary hover:text-accent transition-colors"
           >
             View all rooms <ArrowRight className="w-4 h-4" />
@@ -1118,15 +1114,27 @@ export default function Landing() {
               room.image ||
               "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800";
 
-            const { averageRating, reviewCount } = getRoomReviewStats(
-              room,
-              reviews,
+            const roomReviews = reviews.filter(
+              (review) =>
+                (review.roomName || "").trim().toLowerCase() ===
+                room.name.trim().toLowerCase(),
             );
+
+            const ratings = roomReviews
+              .map((review) => Number(review.rating))
+              .filter((rating) => rating >= 1 && rating <= 5);
+
+            const roomAverage =
+              ratings.length > 0
+                ? ratings.reduce((sum, rating) => sum + rating, 0) /
+                  ratings.length
+                : 0;
 
             return (
               <Link
                 key={room.id}
-                to={`/rooms/${room.id}`}
+                to={buildRoomDetailUrl(room.id)}
+                state={stayState}
                 className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-border"
               >
                 <div className="relative h-52 overflow-hidden">
@@ -1135,13 +1143,11 @@ export default function Landing() {
                     alt={room.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
-
                   <div className="absolute top-3 left-3">
                     <span className="px-2.5 py-1 bg-white/90 rounded-full text-xs font-medium text-primary capitalize">
                       {room.type?.replace("-", " ")}
                     </span>
                   </div>
-
                   {room.available === false && (
                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                       <span className="text-white font-semibold text-sm bg-black/60 px-3 py-1 rounded-full">
@@ -1160,10 +1166,10 @@ export default function Landing() {
                   </h3>
 
                   <div className="flex items-center gap-2 mb-3 mt-2">
-                    <StarRating rating={averageRating} />
+                    <StarRating rating={roomAverage} />
                     <span className="text-xs text-muted-foreground">
-                      {reviewCount > 0
-                        ? `${averageRating.toFixed(1)} (${reviewCount})`
+                      {ratings.length > 0
+                        ? `${roomAverage.toFixed(1)} (${ratings.length})`
                         : "(0)"}
                     </span>
                   </div>
@@ -1177,7 +1183,6 @@ export default function Landing() {
                         /night
                       </span>
                     </div>
-
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Users className="w-3.5 h-3.5" />
                       Up to {room.capacity}
@@ -1191,7 +1196,8 @@ export default function Landing() {
 
         <div className="text-center mt-8 sm:hidden">
           <Link
-            to="/rooms"
+            to={buildRoomListUrl()}
+            state={stayState}
             className="inline-flex items-center gap-2 text-primary font-medium text-sm hover:text-accent transition-colors"
           >
             View all rooms <ArrowRight className="w-4 h-4" />
@@ -1217,7 +1223,6 @@ export default function Landing() {
                 Island Adventures
               </h2>
             </div>
-
             <Link
               to="/services"
               className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-primary hover:text-accent transition-colors"
@@ -1227,37 +1232,40 @@ export default function Landing() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {services.slice(0, 3).map((svc) => (
+            {services.slice(0, 3).map((service) => (
               <Link
-                key={svc.id}
+                key={service.id}
                 to="/services"
                 className="group relative rounded-2xl overflow-hidden h-64 shadow-sm hover:shadow-xl transition-all"
               >
-                <img
-                  src={svc.image}
-                  alt={svc.name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
-
+                {service.image ? (
+                  <img
+                    src={service.image}
+                    alt={service.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-primary/20 flex items-center justify-center">
+                    <Waves className="w-12 h-12 text-primary/50" />
+                  </div>
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-
                 <div className="absolute bottom-0 left-0 right-0 p-5">
                   <span className="text-white/70 text-xs uppercase tracking-wider">
-                    {svc.category}
+                    {service.category}
                   </span>
                   <h3
                     className="text-white font-semibold text-lg mt-0.5"
                     style={{ fontFamily: "var(--font-display)" }}
                   >
-                    {svc.name}
+                    {service.name}
                   </h3>
-
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-accent font-semibold text-sm">
-                      ₱{Number(svc.price || 0).toLocaleString()}
+                      ₱{Number(service.price || 0).toLocaleString()}
                     </span>
                     <span className="text-white/70 text-xs">
-                      {svc.duration}
+                      {service.duration}
                     </span>
                   </div>
                 </div>
@@ -1267,63 +1275,48 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-12">
-          <p className="text-accent text-sm font-medium uppercase tracking-wider mb-2">
-            Why Sabang Beach and Diving Resorts
-          </p>
-          <h2
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "2.25rem",
-              fontWeight: 700,
-              color: "#0A2540",
-            }}
-          >
-            The Difference Is in the Details
-          </h2>
-        </div>
+      <section className="py-16 md:py-20 bg-[#F8F5F0]">
+        <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-10">
+          <div className="text-center mb-12">
+            <p className="text-[#F15A35] text-sm font-medium uppercase tracking-[0.12em] mb-4">
+              WHY {resortName.toUpperCase()}
+            </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-          {[
-            {
-              icon: Anchor,
-              title: "PADI-Certified Diving",
-              desc: "Expert dive masters with 15+ years guiding guests through 50+ local dive sites.",
-            },
-            {
-              icon: Shield,
-              title: "Safety First",
-              desc: "International safety standards, first aid certified staff, and emergency protocols at every activity.",
-            },
-            {
-              icon: Award,
-              title: "Award-Winning Service",
-              desc: "TripAdvisor Certificate of Excellence for 5 consecutive years.",
-            },
-            {
-              icon: Waves,
-              title: "Pristine Location",
-              desc: "Nestled in a protected marine sanctuary with unparalleled biodiversity.",
-            },
-          ].map((item) => (
-            <div key={item.title} className="text-center">
-              <div className="w-14 h-14 rounded-2xl bg-secondary flex items-center justify-center mx-auto mb-4">
-                <item.icon className="w-7 h-7 text-primary" />
-              </div>
+            <h2
+              className="text-[#0A2540] text-3xl md:text-4xl font-bold leading-tight"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              The Difference Is in the Details
+            </h2>
+          </div>
 
-              <h3
-                className="font-semibold text-foreground mb-2 text-sm"
-                style={{ fontFamily: "var(--font-display)" }}
-              >
-                {item.title}
-              </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-10">
+            {features.map((feature, index) => {
+              const FeatureIcon = FEATURE_ICONS[index] ?? Anchor;
 
-              <p className="text-muted-foreground text-sm leading-relaxed">
-                {item.desc}
-              </p>
-            </div>
-          ))}
+              return (
+                <div
+                  key={`${feature.title}-${index}`}
+                  className="flex flex-col items-center text-center px-2"
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-[#E5F3F7] flex items-center justify-center mb-4">
+                    <FeatureIcon className="w-7 h-7 text-[#0A456B]" />
+                  </div>
+
+                  <h3
+                    className="font-semibold text-[#0A2540] text-sm mb-2 leading-snug"
+                    style={{ fontFamily: "var(--font-display)" }}
+                  >
+                    {feature.title}
+                  </h3>
+
+                  <p className="text-[#64748B] text-sm leading-relaxed max-w-[260px]">
+                    {feature.description}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -1344,53 +1337,64 @@ export default function Landing() {
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {reviews.slice(0, 2).map((review) => (
-              <div
-                key={review.id}
-                className="bg-white/10 backdrop-blur rounded-2xl p-6 border border-white/10"
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <img
-                    src={
-                      review.guestAvatar ||
-                      "https://ui-avatars.com/api/?name=" +
-                        encodeURIComponent(review.guestName || "Guest")
-                    }
-                    alt={review.guestName}
-                    className="w-11 h-11 rounded-full object-cover ring-2 ring-accent/50"
-                  />
-
-                  <div>
-                    <div className="font-semibold text-white text-sm">
-                      {review.guestName}
+          {reviews.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {reviews.slice(0, 2).map((review) => (
+                <div
+                  key={review.id}
+                  className="bg-white/10 backdrop-blur rounded-2xl p-6 border border-white/10"
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <img
+                      src={
+                        review.guestAvatar ||
+                        "https://ui-avatars.com/api/?name=" +
+                          encodeURIComponent(review.guestName || "Guest")
+                      }
+                      alt={review.guestName}
+                      className="w-11 h-11 rounded-full object-cover ring-2 ring-accent/50"
+                    />
+                    <div>
+                      <div className="font-semibold text-white text-sm">
+                        {review.guestName}
+                      </div>
+                      <div className="text-white/50 text-xs">
+                        {review.roomName ||
+                          review.serviceName ||
+                          "Resort guest"}
+                      </div>
                     </div>
-                    <div className="text-white/50 text-xs">
-                      {review.roomName || review.serviceName}
+                    <div className="ml-auto flex items-center gap-1">
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <Star
+                          key={i}
+                          className={`w-3.5 h-3.5 ${
+                            i <= review.rating
+                              ? "fill-accent text-accent"
+                              : "text-white/30"
+                          }`}
+                        />
+                      ))}
                     </div>
                   </div>
 
-                  <div className="ml-auto flex items-center gap-1">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <Star
-                        key={i}
-                        className={`w-3.5 h-3.5 ${
-                          i <= review.rating
-                            ? "fill-accent text-accent"
-                            : "text-white/30"
-                        }`}
-                      />
-                    ))}
-                  </div>
+                  <p className="text-white/80 text-sm leading-relaxed italic">
+                    "{review.comment}"
+                  </p>
+
+                  <p className="text-white/40 text-xs mt-3">
+                    {review.date
+                      ? new Date(review.date).toLocaleDateString()
+                      : ""}
+                  </p>
                 </div>
-
-                <p className="text-white/80 text-sm leading-relaxed italic">
-                  "{review.comment}"
-                </p>
-                <p className="text-white/40 text-xs mt-3">{review.date}</p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-center text-white/70 text-sm">
+              Guest reviews will appear here once they are published.
+            </p>
+          )}
 
           <div className="text-center mt-8">
             <Link
@@ -1444,16 +1448,16 @@ export default function Landing() {
                 },
                 {
                   role: "ai",
-                  msg: "I recommend the Sabang Beachfront Villa! It's right on the beach, rated 4.9★, and I can add a Snorkeling Safari to your booking. Shall I check availability?",
+                  msg: `I can help you find a room and activities at ${resortName}. Shall I check availability?`,
                 },
-              ].map((m, i) => (
+              ].map((message, index) => (
                 <div
-                  key={i}
+                  key={index}
                   className={`flex ${
-                    m.role === "user" ? "justify-end" : "justify-start"
+                    message.role === "user" ? "justify-end" : "justify-start"
                   }`}
                 >
-                  {m.role === "ai" && (
+                  {message.role === "ai" && (
                     <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center mr-2 flex-shrink-0 mt-0.5">
                       <Bot className="w-4 h-4 text-white" />
                     </div>
@@ -1461,12 +1465,12 @@ export default function Landing() {
 
                   <div
                     className={`max-w-[85%] px-3 py-2 rounded-2xl text-xs ${
-                      m.role === "user"
+                      message.role === "user"
                         ? "bg-primary text-white rounded-br-sm"
                         : "bg-muted text-foreground rounded-bl-sm"
                     }`}
                   >
-                    {m.msg}
+                    {message.msg}
                   </div>
                 </div>
               ))}
@@ -1488,32 +1492,54 @@ export default function Landing() {
             Need Help Planning Your Stay?
           </h2>
 
+          <p className="text-muted-foreground text-sm mb-3">
+            Our team is available to assist you.
+          </p>
+
           <p className="text-muted-foreground text-sm mb-8">
-            Our team is available 7 days a week to assist you.
+            Check-in: {resortSettings.checkInTime || "14:00"}
+            {" · "}
+            Check-out: {resortSettings.checkOutTime || "11:00"}
+            {" · "}
+            Front desk: {resortSettings.frontDeskHours || "24/7"}
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <a
-              href="tel:+6348555019"
-              className="flex items-center gap-2 text-sm font-medium text-primary bg-white border border-border px-5 py-3 rounded-full hover:shadow-md transition-all"
-            >
-              <Phone className="w-4 h-4" /> +63 48 555 0192
-            </a>
+            {resortSettings.phone && (
+              <a
+                href={`tel:${resortSettings.phone.replace(/[^\d+]/g, "")}`}
+                className="flex items-center gap-2 text-sm font-medium text-primary bg-white border border-border px-5 py-3 rounded-full hover:shadow-md transition-all"
+              >
+                <Phone className="w-4 h-4" />
+                {resortSettings.phone}
+              </a>
+            )}
 
-            <a
-              href="mailto:hello@SabangBeach.ph"
-              className="flex items-center gap-2 text-sm font-medium text-primary bg-white border border-border px-5 py-3 rounded-full hover:shadow-md transition-all"
-            >
-              <Mail className="w-4 h-4" /> hello@SabangBeach.ph
-            </a>
+            {resortSettings.email && (
+              <a
+                href={`mailto:${resortSettings.email}`}
+                className="flex items-center gap-2 text-sm font-medium text-primary bg-white border border-border px-5 py-3 rounded-full hover:shadow-md transition-all"
+              >
+                <Mail className="w-4 h-4" />
+                {resortSettings.email}
+              </a>
+            )}
 
             <Link
               to="/inquiries"
               className="flex items-center gap-2 text-sm font-medium bg-accent text-white px-5 py-3 rounded-full hover:bg-accent/90 transition-colors"
             >
-              <MapPin className="w-4 h-4" /> Send a Message
+              <MapPin className="w-4 h-4" />
+              Send a Message
             </Link>
           </div>
+
+          {resortSettings.address && (
+            <p className="text-muted-foreground text-sm mt-6">
+              <MapPin className="w-4 h-4 inline-block mr-1" />
+              {resortSettings.address}
+            </p>
+          )}
         </div>
       </section>
     </div>

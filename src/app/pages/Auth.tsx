@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useApp } from "../context/AppContext";
 import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "../components/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
+import { auth, db } from "../components/firebase";
 import TermsModal from "../components/TermsModal";
 import {
   Eye,
@@ -15,19 +16,22 @@ import {
 import TurnstileWidget from "../components/TurnstileWidget";
 import { verifyTurnstile } from "../components/verifyTurnstile";
 
+const DEFAULT_RESORT_NAME = "Sabang Beach and Diving Resort";
+
 export default function Auth() {
   const { user, login, register, googleLogin, googleRegister } = useApp();
+
+  const [resortName, setResortName] = useState(DEFAULT_RESORT_NAME);
 
   const [turnstileToken, setTurnstileToken] = useState("");
   const [showTerms, setShowTerms] = useState(false);
 
   const [params] = useSearchParams();
+  const navigate = useNavigate();
 
   const [tab, setTab] = useState<"login" | "register">(
     params.get("tab") === "register" ? "register" : "login",
   );
-
-  const navigate = useNavigate();
 
   const [loginError, setLoginError] = useState("");
   const [registerError, setRegisterError] = useState("");
@@ -56,6 +60,34 @@ export default function Auth() {
   });
 
   useEffect(() => {
+    const settingsRef = doc(db, "publicSettings", "general");
+
+    const unsubscribe = onSnapshot(
+      settingsRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setResortName(DEFAULT_RESORT_NAME);
+          return;
+        }
+
+        const settings = snapshot.data();
+
+        setResortName(
+          typeof settings.resortName === "string" && settings.resortName.trim()
+            ? settings.resortName.trim()
+            : DEFAULT_RESORT_NAME,
+        );
+      },
+      (error) => {
+        console.error("Failed to load resort settings:", error);
+        setResortName(DEFAULT_RESORT_NAME);
+      },
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
     if (user) {
       navigate("/");
     }
@@ -75,7 +107,7 @@ export default function Auth() {
     }
 
     if (!turnstileToken) {
-      setLoginError("Please complete the security verification.");
+      setResetError("Please complete the security verification.");
       return;
     }
 
@@ -117,7 +149,7 @@ export default function Auth() {
     }
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     setLoginError("");
@@ -135,13 +167,12 @@ export default function Auth() {
     try {
       const isVerified = await verifyTurnstile(turnstileToken);
 
-      if (!isVerified) {
-        setTurnstileToken("");
+      setTurnstileToken("");
 
+      if (!isVerified) {
         setLoginError(
           "Security verification failed or expired. Please try again.",
         );
-
         return;
       }
 
@@ -159,7 +190,6 @@ export default function Auth() {
         setLoginError(
           "Your email is not verified. Please check your email and verify your account before signing in.",
         );
-
         return;
       }
 
@@ -274,13 +304,12 @@ export default function Auth() {
     try {
       const isVerified = await verifyTurnstile(turnstileToken);
 
-      if (!isVerified) {
-        setTurnstileToken("");
+      setTurnstileToken("");
 
+      if (!isVerified) {
         setRegisterError(
           "Security verification failed or expired. Please try again.",
         );
-
         return;
       }
 
@@ -426,7 +455,7 @@ export default function Auth() {
               className="text-white font-semibold"
               style={{ fontFamily: "var(--font-display)" }}
             >
-              Sabang Diving Resort
+              {resortName}
             </span>
           </Link>
 
@@ -444,8 +473,8 @@ export default function Auth() {
             </h2>
 
             <p className="text-white/70 leading-relaxed text-sm">
-              Create your account to access exclusive booking, manage
-              reservations, and unlock member benefits at Sabang Resorts.
+              Create your account to access exclusive bookings, manage your
+              reservations, and enjoy member benefits at {resortName}.
             </p>
 
             <div className="flex flex-col gap-2 mt-6">
@@ -466,7 +495,7 @@ export default function Auth() {
           </div>
 
           <p className="text-white/40 text-xs">
-            © 2026 Sabang Beach & Diving Resorts
+            © {new Date().getFullYear()} {resortName}
           </p>
         </div>
       </div>
@@ -482,7 +511,7 @@ export default function Auth() {
               className="text-primary font-semibold"
               style={{ fontFamily: "var(--font-display)" }}
             >
-              Sabang Diving and Beach Resorts
+              {resortName}
             </span>
           </div>
 
@@ -495,9 +524,7 @@ export default function Auth() {
                 navigate("/");
               }
             }}
-            className="flex items-center gap-2 mb-6 text-sm
-    text-muted-foreground hover:text-primary
-    transition-colors"
+            className="flex items-center gap-2 mb-6 text-sm text-muted-foreground hover:text-primary transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
@@ -507,7 +534,12 @@ export default function Auth() {
             {(["login", "register"] as const).map((t) => (
               <button
                 key={t}
-                onClick={() => setTab(t)}
+                type="button"
+                onClick={() => {
+                  setTab(t);
+                  setLoginError("");
+                  setRegisterError("");
+                }}
                 className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
                   tab === t
                     ? "bg-white text-primary shadow-sm"
@@ -561,13 +593,19 @@ export default function Auth() {
 
                   <input
                     type="email"
-                    placeholder="cunag@email.com"
+                    placeholder="you@email.com"
                     value={resetEmail}
                     onChange={(e) => setResetEmail(e.target.value)}
                     required
                     className={inputClass}
                   />
                 </div>
+
+                <TurnstileWidget
+                  onVerify={(token) => setTurnstileToken(token)}
+                  onExpire={() => setTurnstileToken("")}
+                  onError={() => setTurnstileToken("")}
+                />
 
                 <button
                   type="submit"
@@ -584,6 +622,7 @@ export default function Auth() {
                     setResetError("");
                     setResetSuccess("");
                     setLoginError("");
+                    setTurnstileToken("");
                   }}
                   className="w-full flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
                 >
@@ -624,9 +663,11 @@ export default function Auth() {
 
                   <input
                     type="email"
-                    placeholder="cunag@email.com"
+                    placeholder="you@email.com"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
+                    autoComplete="email"
+                    required
                     className={inputClass}
                   />
                 </div>
@@ -644,6 +685,7 @@ export default function Auth() {
                         setResetError("");
                         setResetSuccess("");
                         setForgotPassword(true);
+                        setTurnstileToken("");
                       }}
                       className="text-xs text-primary font-medium hover:text-accent transition-colors"
                     >
@@ -657,6 +699,8 @@ export default function Auth() {
                       placeholder="••••••••"
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
+                      autoComplete="current-password"
+                      required
                       className={inputClass + " pr-10"}
                     />
 
@@ -676,6 +720,7 @@ export default function Auth() {
                     </button>
                   </div>
                 </div>
+
                 <TurnstileWidget
                   onVerify={(token) => setTurnstileToken(token)}
                   onExpire={() => setTurnstileToken("")}
@@ -706,7 +751,11 @@ export default function Auth() {
                   onClick={handleGoogleLogin}
                   className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
                 >
-                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <svg
+                    className="w-5 h-5"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
                     <path
                       fill="#4285F4"
                       d="M21.35 12.23c0-.79-.07-1.55-.2-2.27H12v4.3h5.23a4.47 4.47 0 0 1-1.94 2.93v2.43h3.14c1.84-1.69 2.92-4.18 2.92-7.39z"
@@ -733,6 +782,7 @@ export default function Auth() {
                     type="button"
                     onClick={() => {
                       setLoginError("");
+                      setRegisterError("");
                       setTab("register");
                     }}
                     className="text-primary font-medium"
@@ -784,6 +834,8 @@ export default function Auth() {
                         firstName: e.target.value,
                       }))
                     }
+                    autoComplete="given-name"
+                    required
                     className={inputClass}
                   />
                 </div>
@@ -803,6 +855,8 @@ export default function Auth() {
                         lastName: e.target.value,
                       }))
                     }
+                    autoComplete="family-name"
+                    required
                     className={inputClass}
                   />
                 </div>
@@ -823,6 +877,8 @@ export default function Auth() {
                       email: e.target.value,
                     }))
                   }
+                  autoComplete="email"
+                  required
                   className={inputClass}
                 />
               </div>
@@ -842,6 +898,8 @@ export default function Auth() {
                       phone: e.target.value,
                     }))
                   }
+                  autoComplete="tel"
+                  required
                   className={inputClass}
                 />
               </div>
@@ -862,6 +920,8 @@ export default function Auth() {
                         password: e.target.value,
                       }))
                     }
+                    autoComplete="new-password"
+                    required
                     className={inputClass + " pr-10"}
                   />
 
@@ -896,6 +956,8 @@ export default function Auth() {
                         confirmPassword: e.target.value,
                       }))
                     }
+                    autoComplete="new-password"
+                    required
                     className={inputClass + " pr-10"}
                   />
 
@@ -978,22 +1040,19 @@ export default function Auth() {
                 onClick={handleGoogleRegister}
                 className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
               >
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
                   <path
                     fill="#4285F4"
                     d="M21.35 12.23c0-.79-.07-1.55-.2-2.27H12v4.3h5.23a4.47 4.47 0 0 1-1.94 2.93v2.43h3.14c1.84-1.69 2.92-4.18 2.92-7.39z"
                   />
-
                   <path
                     fill="#34A853"
                     d="M12 21.5c2.63 0 4.84-.87 6.45-2.35l-3.14-2.43c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.51A9.74 9.74 0 0 0 12 21.5z"
                   />
-
                   <path
                     fill="#FBBC05"
                     d="M6.54 13.61A5.85 5.85 0 0 1 6.23 12c0-.56.1-1.1.31-1.61V7.88H3.3A9.75 9.75 0 0 0 2.25 12c0 1.57.38 3.05 1.05 4.12l3.24-2.51z"
                   />
-
                   <path
                     fill="#EA4335"
                     d="M12 6.36c1.43 0 2.71.49 3.72 1.46l2.79-2.79C16.83 3.48 14.63 2.5 12 2.5a9.74 9.74 0 0 0-8.7 5.38l3.24 2.51C7.31 8.08 9.46 6.36 12 6.36z"
