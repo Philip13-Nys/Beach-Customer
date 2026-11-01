@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useApp } from "../context/AppContext";
 import { sendPasswordResetEmail } from "firebase/auth";
@@ -24,6 +24,9 @@ export default function Auth() {
   const [resortName, setResortName] = useState(DEFAULT_RESORT_NAME);
 
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [verificationAttempt, setVerificationAttempt] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [showTerms, setShowTerms] = useState(false);
 
   const [params] = useSearchParams();
@@ -44,6 +47,46 @@ export default function Auth() {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSuccess, setResetSuccess] = useState("");
   const [resetError, setResetError] = useState("");
+
+  const verificationFlow =
+    tab === "register" ? "register" : forgotPassword ? "reset" : "login";
+  const [tokenFlow, setTokenFlow] = useState("");
+
+  useEffect(() => {
+    setTurnstileToken("");
+    setTokenFlow("");
+  }, [verificationFlow]);
+
+  const resetVerification = () => {
+    setTurnstileToken("");
+    setTokenFlow("");
+    setVerificationAttempt((attempt) => attempt + 1);
+  };
+
+  const handleVerification = (token: string) => {
+    setTurnstileToken(token);
+    setTokenFlow(verificationFlow);
+    const clearVerificationError = (error: string) =>
+      error.toLowerCase().includes("security verification") ? "" : error;
+    setLoginError(clearVerificationError);
+    setRegisterError(clearVerificationError);
+    setResetError(clearVerificationError);
+  };
+
+  const verificationWidget = (
+    <TurnstileWidget
+      key={`${verificationFlow}-${verificationAttempt}`}
+      onVerify={handleVerification}
+      onExpire={() => {
+        setTurnstileToken("");
+        setTokenFlow("");
+      }}
+      onError={() => {
+        setTurnstileToken("");
+        setTokenFlow("");
+      }}
+    />
+  );
 
   const [showLoginPwd, setShowLoginPwd] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
@@ -106,17 +149,20 @@ export default function Auth() {
       return;
     }
 
-    if (!turnstileToken) {
+    if (!turnstileToken || tokenFlow !== verificationFlow) {
       setResetError("Please complete the security verification.");
       return;
     }
 
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
     setResetLoading(true);
 
     try {
       const isVerified = await verifyTurnstile(turnstileToken);
 
-      setTurnstileToken("");
+      // The widget and its single-use token are reset in finally.
 
       if (!isVerified) {
         setResetError("Security verification failed. Please try again.");
@@ -133,6 +179,8 @@ export default function Auth() {
 
       if (error.code === "auth/invalid-email") {
         setResetError("Please enter a valid email address.");
+      } else if (error.code === "auth/user-not-found") {
+        setResetError("The account is not registered.");
       } else if (error.code === "auth/too-many-requests") {
         setResetError(
           "Too many attempts. Please wait a while before trying again.",
@@ -146,6 +194,9 @@ export default function Auth() {
       }
     } finally {
       setResetLoading(false);
+      resetVerification();
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -159,15 +210,19 @@ export default function Auth() {
       return;
     }
 
-    if (!turnstileToken) {
+    if (!turnstileToken || tokenFlow !== verificationFlow) {
       setLoginError("Please complete the security verification.");
       return;
     }
 
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+
     try {
       const isVerified = await verifyTurnstile(turnstileToken);
 
-      setTurnstileToken("");
+      // The widget and its single-use token are reset in finally.
 
       if (!isVerified) {
         setLoginError(
@@ -203,6 +258,10 @@ export default function Auth() {
       }
 
       setLoginError(error.message || "Login failed.");
+    } finally {
+      resetVerification();
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -210,15 +269,19 @@ export default function Auth() {
     setLoginError("");
     setRegisterError("");
 
-    if (!turnstileToken) {
+    if (!turnstileToken || tokenFlow !== verificationFlow) {
       setLoginError("Please complete the security verification.");
       return;
     }
 
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+
     try {
       const isVerified = await verifyTurnstile(turnstileToken);
 
-      setTurnstileToken("");
+      // The widget and its single-use token are reset in finally.
 
       if (!isVerified) {
         setLoginError("Security verification failed. Please try again.");
@@ -252,6 +315,10 @@ export default function Auth() {
       setLoginError(
         error.message || "Google sign-in failed. Please try again.",
       );
+    } finally {
+      resetVerification();
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -296,15 +363,19 @@ export default function Auth() {
       return;
     }
 
-    if (!turnstileToken) {
+    if (!turnstileToken || tokenFlow !== verificationFlow) {
       setRegisterError("Please complete the security verification.");
       return;
     }
 
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+
     try {
       const isVerified = await verifyTurnstile(turnstileToken);
 
-      setTurnstileToken("");
+      // The widget and its single-use token are reset in finally.
 
       if (!isVerified) {
         setRegisterError(
@@ -363,6 +434,10 @@ export default function Auth() {
       setRegisterError(
         error.message || "Registration failed. Please try again.",
       );
+    } finally {
+      resetVerification();
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -374,15 +449,19 @@ export default function Auth() {
       return;
     }
 
-    if (!turnstileToken) {
+    if (!turnstileToken || tokenFlow !== verificationFlow) {
       setRegisterError("Please complete the security verification.");
       return;
     }
 
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+
     try {
       const isVerified = await verifyTurnstile(turnstileToken);
 
-      setTurnstileToken("");
+      // The widget and its single-use token are reset in finally.
 
       if (!isVerified) {
         setRegisterError("Security verification failed. Please try again.");
@@ -420,6 +499,10 @@ export default function Auth() {
       setRegisterError(
         error.message || "Google registration failed. Please try again.",
       );
+    } finally {
+      resetVerification();
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -536,6 +619,8 @@ export default function Auth() {
                 key={t}
                 type="button"
                 onClick={() => {
+                  if (submittingRef.current) return;
+                  resetVerification();
                   setTab(t);
                   setLoginError("");
                   setRegisterError("");
@@ -601,15 +686,11 @@ export default function Auth() {
                   />
                 </div>
 
-                <TurnstileWidget
-                  onVerify={(token) => setTurnstileToken(token)}
-                  onExpire={() => setTurnstileToken("")}
-                  onError={() => setTurnstileToken("")}
-                />
+                {verificationWidget}
 
                 <button
                   type="submit"
-                  disabled={resetLoading}
+                  disabled={resetLoading || submitting}
                   className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {resetLoading ? "Sending reset link..." : "Send Reset Link"}
@@ -618,6 +699,8 @@ export default function Auth() {
                 <button
                   type="button"
                   onClick={() => {
+                    if (submittingRef.current) return;
+                    resetVerification();
                     setForgotPassword(false);
                     setResetError("");
                     setResetSuccess("");
@@ -684,6 +767,8 @@ export default function Auth() {
                         setResetEmail(loginEmail);
                         setResetError("");
                         setResetSuccess("");
+                        if (submittingRef.current) return;
+                        resetVerification();
                         setForgotPassword(true);
                         setTurnstileToken("");
                       }}
@@ -721,14 +806,11 @@ export default function Auth() {
                   </div>
                 </div>
 
-                <TurnstileWidget
-                  onVerify={(token) => setTurnstileToken(token)}
-                  onExpire={() => setTurnstileToken("")}
-                  onError={() => setTurnstileToken("")}
-                />
+                {verificationWidget}
 
                 <button
                   type="submit"
+                  disabled={submitting}
                   className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
                 >
                   Sign In
@@ -748,6 +830,7 @@ export default function Auth() {
 
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={handleGoogleLogin}
                   className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
                 >
@@ -783,6 +866,8 @@ export default function Auth() {
                     onClick={() => {
                       setLoginError("");
                       setRegisterError("");
+                      if (submittingRef.current) return;
+                      resetVerification();
                       setTab("register");
                     }}
                     className="text-primary font-medium"
@@ -1016,8 +1101,11 @@ export default function Auth() {
                 </label>
               </div>
 
+              {verificationWidget}
+
               <button
                 type="submit"
+                disabled={submitting}
                 className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
               >
                 Create Account
@@ -1037,6 +1125,7 @@ export default function Auth() {
 
               <button
                 type="button"
+                disabled={submitting}
                 onClick={handleGoogleRegister}
                 className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
               >
@@ -1067,6 +1156,8 @@ export default function Auth() {
                   type="button"
                   onClick={() => {
                     setRegisterError("");
+                    if (submittingRef.current) return;
+                    resetVerification();
                     setTab("login");
                   }}
                   className="text-primary font-medium hover:text-accent transition-colors"
