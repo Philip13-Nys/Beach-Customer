@@ -811,9 +811,10 @@ export default function Auth() {
                 <button
                   type="submit"
                   disabled={submitting}
+                aria-busy={submitting}
                   className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
                 >
-                  Sign In
+                  {submitting ? "Signing in..." : "Sign In"}
                 </button>
 
                 <div className="relative my-4">
@@ -831,6 +832,7 @@ export default function Auth() {
                 <button
                   type="button"
                   disabled={submitting}
+                aria-busy={submitting}
                   onClick={handleGoogleLogin}
                   className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
                 >
@@ -856,7 +858,7 @@ export default function Auth() {
                       d="M12 6.36c1.43 0 2.71.49 3.72 1.46l2.79-2.79C16.83 3.48 14.63 2.5 12 2.5a9.74 9.74 0 0 0-8.7 5.38l3.24 2.51C7.31 8.08 9.46 6.36 12 6.36z"
                     />
                   </svg>
-                  Continue with Google
+                  {submitting ? "Please wait..." : "Continue with Google"}
                 </button>
 
                 <p className="text-center text-xs text-muted-foreground">
@@ -1106,9 +1108,10 @@ export default function Auth() {
               <button
                 type="submit"
                 disabled={submitting}
+                aria-busy={submitting}
                 className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
               >
-                Create Account
+                {submitting ? "Creating account..." : "Create Account"}
               </button>
 
               <div className="relative my-4">
@@ -1126,6 +1129,7 @@ export default function Auth() {
               <button
                 type="button"
                 disabled={submitting}
+                aria-busy={submitting}
                 onClick={handleGoogleRegister}
                 className="w-full border border-border bg-white text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-3"
               >
@@ -1147,7 +1151,7 @@ export default function Auth() {
                     d="M12 6.36c1.43 0 2.71.49 3.72 1.46l2.79-2.79C16.83 3.48 14.63 2.5 12 2.5a9.74 9.74 0 0 0-8.7 5.38l3.24 2.51C7.31 8.08 9.46 6.36 12 6.36z"
                   />
                 </svg>
-                Continue with Google
+                {submitting ? "Please wait..." : "Continue with Google"}
               </button>
 
               <p className="text-center text-xs text-muted-foreground">

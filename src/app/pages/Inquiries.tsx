@@ -1,7 +1,9 @@
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context/AppContext";
 import {
   Send,
+  Loader2,
   MessageCircle,
   Phone,
   Mail,
@@ -84,6 +86,8 @@ const FAQS = [
 ];
 
 export default function Inquiries() {
+  const sendAction = useAsyncAction();
+
   const { user } = useApp();
 
   const [settings, setSettings] = useState<ResortSettings>(DEFAULT_SETTINGS);
@@ -291,7 +295,7 @@ export default function Inquiries() {
     }
   }, [selectedInquiry?.replies, tab]);
 
-  const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const performFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!user?.id) {
@@ -346,7 +350,12 @@ export default function Inquiries() {
     }
   };
 
-  const sendChat = async () => {
+  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    return sendAction.run(() => performFormSubmit(e));
+  };
+
+  const performSendChat = async () => {
     if (!input.trim() || sending) return;
 
     if (!selectedInquiry) {
@@ -382,6 +391,10 @@ export default function Inquiries() {
     } finally {
       setSending(false);
     }
+  };
+
+  const sendChat = () => {
+    return sendAction.run(() => performSendChat());
   };
 
   const inputClass =
@@ -687,7 +700,7 @@ export default function Inquiries() {
                     disabled={sending}
                     className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    <Send className="w-4 h-4" />
+                    {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     {sending ? "Sending..." : "Send Message"}
                   </button>
                 </form>
@@ -843,9 +856,10 @@ export default function Inquiries() {
                   onClick={() => void sendChat()}
                   disabled={!input.trim() || !selectedInquiry || sending}
                   className="w-9 h-9 bg-primary text-white rounded-xl flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50"
-                  aria-label="Send message"
+                  aria-label={sending ? "Sending message" : "Send message"}
+                  aria-busy={sending}
                 >
-                  <Send className="w-4 h-4" />
+                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </button>
               </div>
             </div>

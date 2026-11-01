@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useApp } from "../context/AppContext";
+import { getPaymentSummary } from "../utils/payment";
 import {
   Smartphone,
   CheckCircle2,
@@ -51,7 +52,6 @@ type Booking = {
 
 export default function Payment() {
   const {
-    modifyBooking,
     pendingPayment,
     setPendingPayment,
     user,
@@ -74,10 +74,11 @@ export default function Payment() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
   const [paymentRecordId, setPaymentRecordId] = useState("");
+  const submittingRef = useRef(false);
 
   const target: Booking | null = bookingId
     ? firestoreBooking
-    : (pendingPayment as Booking | null);
+    : ((pendingPayment as Booking | null) ?? firestoreBooking);
 
   useEffect(() => {
     if (!user) {
@@ -175,21 +176,25 @@ export default function Payment() {
 
   const percent = Number(settings?.downPaymentPercent ?? 0);
 
-  const validPercent =
-    Number.isFinite(percent) && percent > 0 && percent <= 100;
+  const {
+    validAmounts,
+    validPercent,
+    remainingBalance,
+    paymentStatus,
+    isBalancePayment,
+    amountDue,
+    balanceAfterVerification,
+  } = getPaymentSummary(target ?? {}, percent);
+  const paymentLabel = isBalancePayment ? "Balance Payment" : "Down Payment";
 
   const total = Number(target?.totalPrice ?? 0);
   const amountPaid = Number(target?.amountPaid ?? 0);
-  const remainingBalance = Math.max(0, total - amountPaid);
+
 
   const reservationFee = Number(target?.reservationFee ?? 0);
   const reservationFeePercent = Number(target?.reservationFeePercent ?? 0);
   const subtotal = Number(target?.subtotal ?? total - reservationFee);
 
-  const downPayment =
-    validPercent && Number.isFinite(total) && total > 0
-      ? Math.ceil((total * percent) / 100)
-      : 0;
 
   const formatPeso = (amount: number) =>
     `₱${amount.toLocaleString("en-PH", {
@@ -213,6 +218,7 @@ export default function Payment() {
 
   const handlePay = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (submittingRef.current || success) return;
     setError("");
 
     if (!user) {
@@ -231,12 +237,12 @@ export default function Payment() {
     }
 
     if (
-      target.paymentStatus === "paid" ||
-      target.paymentStatus === "pending_verification" ||
+      paymentStatus === "paid" ||
+      paymentStatus === "pending_verification" ||
       target.status === "cancelled"
     ) {
       setError(
-        target.paymentStatus === "pending_verification"
+        paymentStatus === "pending_verification"
           ? "Your payment is already awaiting verification."
           : "This booking is not eligible for payment.",
       );
@@ -258,13 +264,13 @@ export default function Payment() {
       return;
     }
 
-    if (!validPercent || downPayment <= 0) {
-      setError("The resort's down payment settings are invalid.");
+    if (!validAmounts) {
+      setError("This booking has invalid payment amounts. Please contact the resort.");
       return;
     }
 
-    if (!Number.isFinite(total) || total <= 0) {
-      setError("This booking has an invalid total price.");
+    if ((!isBalancePayment && !validPercent) || amountDue <= 0) {
+      setError("The resort's down payment settings are invalid.");
       return;
     }
 
@@ -277,6 +283,7 @@ export default function Payment() {
       return;
     }
 
+    submittingRef.current = true;
     setProcessing(true);
 
     try {
@@ -292,8 +299,8 @@ export default function Payment() {
         guest: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
         room: target.roomName ?? "",
         method: "gcash",
-        type: downPayment >= remainingBalance ? "balance" : "partial",
-        amount: downPayment,
+        type: amountDue >= remainingBalance ? "balance" : "partial",
+        amount: amountDue,
 
         date: new Date().toLocaleDateString(),
         time: new Date().toLocaleTimeString([], {
@@ -321,32 +328,21 @@ export default function Payment() {
         paymentMethod: "GCash",
         paymentReference: cleanReference,
         paymentRecordId: paymentRef.id,
+        remainingBalance,
+        ...(!isBalancePayment ? { downPaymentAmount: amountDue } : {}),
       });
 
       await batch.commit();
 
-      await modifyBooking(target.id, {
+      setFirestoreBooking({
+        ...target,
         paymentStatus: "pending_verification",
         paymentMethod: "GCash",
-        downPaymentAmount: downPayment,
-        remainingBalance: Math.max(0, total - downPayment),
+        ...(!isBalancePayment ? { downPaymentAmount: amountDue } : {}),
+        remainingBalance,
         paymentReference: cleanReference,
         paymentRecordId: paymentRef.id,
       });
-
-      setFirestoreBooking((previous) =>
-        previous
-          ? {
-              ...previous,
-              paymentStatus: "pending_verification",
-              paymentMethod: "GCash",
-              downPaymentAmount: downPayment,
-              remainingBalance: Math.max(0, total - downPayment),
-              paymentReference: cleanReference,
-              paymentRecordId: paymentRef.id,
-            }
-          : previous,
-      );
 
       setPendingPayment(null);
       setPaymentRecordId(paymentRef.id);
@@ -356,8 +352,8 @@ export default function Payment() {
           eventId: `payment-submitted-${paymentRef.id}`,
           type: "payment",
           title: "Payment submitted",
-          message: `Your GCash down payment of ${formatPeso(
-            downPayment,
+          message: `Your GCash payment of ${formatPeso(
+            amountDue,
           )} for booking ${
             target.bookingRef ?? target.id
           } has been submitted. Reference: ${cleanReference}. Status: Pending verification.`,
@@ -377,6 +373,7 @@ export default function Payment() {
         "Could not submit your payment. Please check your connection and try again.",
       );
     } finally {
+      submittingRef.current = false;
       setProcessing(false);
     }
   };
@@ -440,7 +437,7 @@ export default function Payment() {
           </h1>
 
           <p className="text-muted-foreground text-sm mb-6">
-            Your down payment details have been submitted. The resort must
+            Your payment details have been submitted. The resort must
             verify your GCash transaction before your payment is accepted.
           </p>
         </div>
@@ -469,13 +466,13 @@ export default function Payment() {
 
           <div className="border-t border-border pt-4 space-y-3">
             <div className="flex justify-between text-sm">
-              <span>Down Payment</span>
-              <span className="font-semibold">{formatPeso(downPayment)}</span>
+              <span>{paymentLabel}</span>
+              <span className="font-semibold">{formatPeso(amountDue)}</span>
             </div>
 
             <div className="flex justify-between text-sm">
               <span>Remaining Balance</span>
-              <span>{formatPeso(Math.max(0, total - downPayment))}</span>
+              <span>{formatPeso(remainingBalance)}</span>
             </div>
           </div>
 
@@ -527,12 +524,21 @@ export default function Payment() {
           fontWeight: 700,
         }}
       >
-        Down Payment
+        {paymentLabel}
       </h1>
 
       <p className="text-muted-foreground text-sm mb-8">
-        Pay your reservation down payment through the resort's GCash account.
+        {isBalancePayment
+          ? "Pay your outstanding balance through the resort's GCash account."
+          : "Pay your reservation down payment through the resort's GCash account."}
       </p>
+
+      {paymentStatus === "pending_verification" && (
+        <p role="status" className="mb-6 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
+          Your payment is awaiting verification. Please wait for the resort to
+          review it before submitting another payment.
+        </p>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
         <div className="lg:col-span-3">
@@ -627,7 +633,7 @@ export default function Payment() {
                       <li>
                         Send exactly{" "}
                         <strong className="text-foreground">
-                          {formatPeso(downPayment)}
+                          {formatPeso(amountDue)}
                         </strong>
                         .
                       </li>
@@ -689,17 +695,21 @@ export default function Payment() {
                 bookingLoading ||
                 settingsLoading ||
                 !settings?.isEnabled ||
-                !validPercent ||
+                !validAmounts ||
+                (!isBalancePayment && !validPercent) ||
+                amountDue <= 0 ||
                 !target ||
-                target.paymentStatus === "paid" ||
-                target.paymentStatus === "pending_verification" ||
+                paymentStatus === "paid" ||
+                paymentStatus === "pending_verification" ||
                 target.status === "cancelled"
               }
               className="w-full bg-accent text-white font-semibold py-4 rounded-xl hover:bg-accent/90 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {processing
                 ? "Submitting Payment..."
-                : `Submit ${formatPeso(downPayment)} Down Payment`}
+                : paymentStatus === "pending_verification"
+                  ? "Awaiting Verification"
+                  : `Submit ${formatPeso(amountDue)} ${paymentLabel}`}
             </button>
           </form>
         </div>
@@ -784,29 +794,39 @@ export default function Payment() {
                 </div>
 
                 <div className="flex justify-between">
+                  <span className="text-muted-foreground">Amount Paid (Verified)</span>
+                  <span>{formatPeso(amountPaid)}</span>
+                </div>
+
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">
-                    Down Payment ({percent}%)
+                    {isBalancePayment ? "Balance Payment" : `Down Payment (${percent}%)`}
                   </span>
-                  <span>{formatPeso(downPayment)}</span>
+                  <span>{formatPeso(amountDue)}</span>
                 </div>
 
                 <div className="flex justify-between text-base font-bold pt-3 border-t border-border">
                   <span>Pay Now</span>
-                  <span className="text-accent">{formatPeso(downPayment)}</span>
+                  <span className="text-accent">{formatPeso(amountDue)}</span>
                 </div>
 
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">
                     Remaining Balance
                   </span>
-                  <span>{formatPeso(Math.max(0, total - downPayment))}</span>
+                  <span>{formatPeso(remainingBalance)}</span>
                 </div>
               </div>
+
+              <p className="text-xs text-muted-foreground">
+                Balance after this payment is verified: {formatPeso(balanceAfterVerification)}.
+                Your current balance changes only after verification.
+              </p>
 
               <div className="bg-amber-50 text-amber-800 rounded-xl p-3 text-xs leading-relaxed">
                 Your booking payment is not considered verified until the resort
                 checks your GCash reference number and confirms receipt of the
-                down payment.
+                payment.
               </div>
             </div>
           </div>

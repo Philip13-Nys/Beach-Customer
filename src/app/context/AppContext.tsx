@@ -5,7 +5,9 @@ import {
   useEffect,
   ReactNode,
   useCallback,
+  useRef,
 } from "react";
+import { bookingNotificationState, bookingChangeNotifications } from "../utils/bookingNotifications";
 
 import { auth, customerDb } from "../components/firebase";
 import {
@@ -130,6 +132,9 @@ interface AppContextType {
   modifyBooking: (id: string, updates: Partial<Booking>) => void;
 
   notifications: Notification[];
+  notificationsLoading: boolean;
+  notificationsError: string;
+  retryNotifications: () => void;
   markNotificationRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
   unreadCount: number;
@@ -174,6 +179,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [pendingPayment, setPendingPayment] = useState<Booking | null>(null);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationLoadError, setNotificationLoadError] = useState("");
+  const [notificationMonitorError, setNotificationMonitorError] = useState("");
+  const [notificationWriteError, setNotificationWriteError] = useState("");
+  const [notificationRetry, setNotificationRetry] = useState(0);
+  const failedNotifications = useRef(new Map<string, { userId: string; input: CreateNotificationInput }>());
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -454,29 +465,96 @@ export function AppProvider({ children }: { children: ReactNode }) {
             createdAt: serverTimestamp(),
           });
         });
+        failedNotifications.current.delete(notificationId);
+        if (auth.currentUser?.uid === firebaseUser.uid && failedNotifications.current.size === 0) {
+          setNotificationWriteError("");
+        }
       } catch (error) {
         console.error("Error creating notification:", error);
+        if (auth.currentUser?.uid === firebaseUser.uid) {
+          failedNotifications.current.set(notificationId, { userId: firebaseUser.uid, input: data });
+          setNotificationWriteError("An update could not be saved to your notifications. Please retry.");
+        }
         throw error;
       }
     },
     [],
   );
 
+  const retryNotifications = useCallback(() => {
+    setNotificationRetry((attempt) => attempt + 1);
+    for (const entry of failedNotifications.current.values()) {
+      if (entry.userId === auth.currentUser?.uid) {
+        void createNotification(entry.input).catch(() => {});
+      }
+    }
+  }, [createNotification]);
+
   useEffect(() => {
+    const userId = user?.id;
+    setNotificationWriteError("");
+    for (const [key, entry] of failedNotifications.current) {
+      if (entry.userId !== userId) failedNotifications.current.delete(key);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    const userId = user?.id;
+    setNotificationMonitorError("");
+    if (!userId) return;
+    let active = true;
+    let initialized = false;
+    const previous = new Map<string, ReturnType<typeof bookingNotificationState>>();
+    const unsubscribe = onSnapshot(
+      query(collection(customerDb, "Bookings"), where("userId", "==", userId)),
+      (snapshot) => {
+        if (!active || auth.currentUser?.uid !== userId) return;
+        setNotificationMonitorError("");
+        for (const change of snapshot.docChanges()) {
+          const id = change.doc.id;
+          if (change.type === "removed") { previous.delete(id); continue; }
+          const data = change.doc.data();
+          const oldState = previous.get(id);
+          previous.set(id, bookingNotificationState(data, oldState));
+          // Seed existing bookings without generating a flood of old updates.
+          if (!initialized || !oldState) continue;
+          for (const input of bookingChangeNotifications(id, data, oldState)) {
+            void createNotification(input).catch(() => {});
+          }
+        }
+        initialized = true;
+      },
+      (error) => {
+        console.error("Booking notification monitor failed:", error);
+        if (active && auth.currentUser?.uid === userId) {
+          setNotificationMonitorError("Booking updates could not be monitored. Please retry.");
+        }
+      },
+    );
+    return () => { active = false; unsubscribe(); };
+  }, [user?.id, notificationRetry, createNotification]);
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribe = () => {};
+    const userId = user?.id;
+    setNotifications([]);
+    setNotificationLoadError("");
     if (!user?.id) {
-      setNotifications([]);
+      setNotificationsLoading(false);
       return;
     }
+    setNotificationsLoading(true);
 
-    const notificationsQuery = query(
+    const ownerQuery = query(
       collection(customerDb, "Notifications"),
       where("userId", "==", user.id),
-      limit(100),
     );
 
-    const unsubscribe = onSnapshot(
-      notificationsQuery,
+    const listen = (ordered: boolean) => onSnapshot(
+      ordered ? query(ownerQuery, orderBy("createdAt", "desc"), limit(100)) : ownerQuery,
       (snapshot) => {
+        if (!active || auth.currentUser?.uid !== userId) return;
         const items: Notification[] = snapshot.docs.map((item) => {
           const data = item.data();
 
@@ -501,16 +579,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return bTime - aTime;
         });
 
-        setNotifications(items);
+        setNotifications(items.slice(0, 100));
+        setNotificationsLoading(false);
+        setNotificationLoadError("");
       },
       (error) => {
+        if (!active || auth.currentUser?.uid !== userId) return;
+        // Keep the frontend usable if the deployed database lacks the compound index.
+        // The fallback still reads only this user's records and selects the newest 100.
+        if (ordered && error.code === "failed-precondition") {
+          console.warn("Using notification sorting fallback; check the Firestore index:", error);
+          unsubscribe = listen(false);
+          return;
+        }
         console.error("Error listening to notifications:", error);
-        setNotifications([]);
+        setNotificationsLoading(false);
+        setNotificationLoadError("Notifications could not be loaded. Please retry.");
       },
     );
 
-    return unsubscribe;
-  }, [user?.id]);
+    unsubscribe = listen(true);
+    return () => { active = false; unsubscribe(); };
+  }, [user?.id, notificationRetry]);
+
+  const notificationsError = notificationLoadError || notificationMonitorError || notificationWriteError;
 
   const markNotificationRead = useCallback(
     async (id: string) => {
@@ -638,6 +730,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         modifyBooking,
 
         notifications,
+        notificationsLoading,
+        notificationsError,
+        retryNotifications,
         markNotificationRead,
         markAllRead,
         unreadCount,

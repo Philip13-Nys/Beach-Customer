@@ -1,3 +1,4 @@
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { useApp } from "../context/AppContext";
@@ -151,6 +152,8 @@ function mapActivity(
 }
 
 export default function Services() {
+  const bookingAction = useAsyncAction();
+
   const [cat, setCat] = useState<Category>("All");
   const [selected, setSelected] = useState<ActivityItem | null>(null);
   const [services, setServices] = useState<ActivityItem[]>([]);
@@ -226,6 +229,7 @@ export default function Services() {
   const filteredPackages = packages.filter(matchesCategory);
 
   const closeBooking = () => {
+    if (bookingAction.pending) return;
     setSelected(null);
     setBooked(false);
     setBookingDate("");
@@ -236,7 +240,7 @@ export default function Services() {
     setSavedBookingRef("");
   };
 
-  const handleBook = async () => {
+  const performBook = async () => {
     if (savingBooking) return;
 
     const currentUser = auth.currentUser;
@@ -333,6 +337,10 @@ export default function Services() {
     } finally {
       setSavingBooking(false);
     }
+  };
+
+  const handleBook = () => {
+    return bookingAction.run(() => performBook());
   };
 
   const renderActivityCard = (item: ActivityItem) => (
@@ -606,6 +614,7 @@ export default function Services() {
               <button
                 type="button"
                 onClick={closeBooking}
+                disabled={bookingAction.pending}
                 className="absolute top-3 right-3 w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center"
                 aria-label="Close booking modal"
               >
@@ -690,6 +699,7 @@ export default function Services() {
                 <button
                   type="button"
                   onClick={closeBooking}
+                  disabled={bookingAction.pending}
                   className="mt-2 w-full border border-border py-2.5 rounded-xl text-sm"
                 >
                   Close
@@ -777,6 +787,7 @@ export default function Services() {
                   <button
                     type="button"
                     onClick={closeBooking}
+                    disabled={bookingAction.pending}
                     className="flex-1 border border-border text-foreground py-2.5 rounded-xl text-sm hover:bg-muted"
                   >
                     Cancel
@@ -785,7 +796,9 @@ export default function Services() {
                   <button
                     type="button"
                     onClick={handleBook}
+                    aria-busy={bookingAction.pending}
                     disabled={
+                      bookingAction.pending ||
                       !bookingDate ||
                       !bookingTime ||
                       participants < 1 ||
@@ -793,7 +806,7 @@ export default function Services() {
                     }
                     className="flex-1 bg-accent text-white py-2.5 rounded-xl text-sm font-medium hover:bg-accent/90 disabled:opacity-50"
                   >
-                    Confirm Booking
+                    {bookingAction.pending ? "Submitting Booking..." : "Confirm Booking"}
                   </button>
                 </div>
               </div>

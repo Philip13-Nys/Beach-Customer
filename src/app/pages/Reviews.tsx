@@ -1,3 +1,4 @@
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useApp } from "../context/AppContext";
@@ -76,6 +77,8 @@ export default function Reviews() {
 }
 
 function ReviewsContent() {
+  const reviewAction = useAsyncAction();
+
   const { user, bookings } = useApp();
   const completedBookings = bookings.filter(
     (b) => b.status === "completed" || b.status === "confirmed",
@@ -126,7 +129,7 @@ function ReviewsContent() {
     loadReviews();
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const performSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!rating || !comment.trim()) return;
@@ -177,6 +180,11 @@ function ReviewsContent() {
       console.error("Error submitting review:", error);
       alert("Failed to submit review. Please try again.");
     }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    return reviewAction.run(() => performSubmit(e));
   };
 
   const avgRating = (
@@ -297,10 +305,11 @@ function ReviewsContent() {
 
                 <button
                   type="submit"
-                  disabled={!rating || !comment.trim()}
+                  disabled={reviewAction.pending || !rating || !comment.trim()}
+                  aria-busy={reviewAction.pending}
                   className="w-full bg-accent text-white py-3 rounded-xl text-sm font-medium hover:bg-accent/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  <Send className="w-4 h-4" /> Submit Review
+                  <Send className="w-4 h-4" /> {reviewAction.pending ? "Submitting..." : "Submit Review"}
                 </button>
               </form>
             )}

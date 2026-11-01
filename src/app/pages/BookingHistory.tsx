@@ -1,5 +1,7 @@
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { Link, Navigate, useLocation } from "react-router";
 import { Booking, useApp } from "../context/AppContext";
+import { getPaymentSummary } from "../utils/payment";
 import {
   Calendar,
   Users,
@@ -113,6 +115,10 @@ export default function BookingHistory() {
 }
 
 function BookingHistoryContent() {
+  const cancelAction = useAsyncAction();
+  const modifyAction = useAsyncAction();
+  const reviewAction = useAsyncAction();
+
   const { user } = useApp();
 
   const [bookings, setBookings] = useState<BookingWithPayment[]>([]);
@@ -169,12 +175,6 @@ function BookingHistoryContent() {
       where("userId", "==", customerUid),
     );
 
-    const previousStatuses = new Map<
-      string,
-      { status: string; paymentStatus: string }
-    >();
-
-    let isFirstSnapshot = true;
     let isActive = true;
 
     const unsubscribe = onSnapshot(
@@ -193,12 +193,9 @@ function BookingHistoryContent() {
             const amountPaid = Number(data.amountPaid ?? 0);
             const remainingBalance = Math.max(0, totalPrice - amountPaid);
 
-            const paymentStatus =
-              remainingBalance <= 0
-                ? "paid"
-                : amountPaid > 0
-                  ? "partial"
-                  : "unpaid";
+            const { paymentStatus } = getPaymentSummary({
+              totalPrice, amountPaid, paymentStatus: data.paymentStatus,
+            });
 
             return {
               ...data,
@@ -216,113 +213,6 @@ function BookingHistoryContent() {
 
         setBookings(bookingList);
 
-        if (isFirstSnapshot) {
-          snapshot.docs.forEach((bookingDoc) => {
-            const data = bookingDoc.data();
-
-            previousStatuses.set(bookingDoc.id, {
-              status: normalizeStatus(data.status),
-              paymentStatus: String(data.paymentStatus ?? ""),
-            });
-          });
-
-          isFirstSnapshot = false;
-          return;
-        }
-
-        snapshot.docChanges().forEach((change) => {
-          if (change.type !== "modified") return;
-
-          const bookingId = change.doc.id;
-          const data = change.doc.data();
-          const oldStatus = previousStatuses.get(bookingId);
-
-          const totalPrice = Number(
-            data.totalPrice ?? data.totalAmount ?? data.total ?? 0,
-          );
-
-          const amountPaid = Number(data.amountPaid ?? 0);
-          const remainingBalance = Math.max(0, totalPrice - amountPaid);
-
-          const newStatus = {
-            status: normalizeStatus(data.status),
-            paymentStatus:
-              remainingBalance <= 0
-                ? "paid"
-                : amountPaid > 0
-                  ? "partial"
-                  : "unpaid",
-          };
-
-          previousStatuses.set(bookingId, newStatus);
-
-          if (!oldStatus) return;
-
-          const bookingRef = data.bookingRef || bookingId;
-          const roomName = data.roomName || "your reservation";
-
-          const notifications: {
-            type: string;
-            title: string;
-            message: string;
-          }[] = [];
-
-          if (oldStatus.status !== newStatus.status) {
-            if (newStatus.status === "confirmed") {
-              notifications.push({
-                type: "booking",
-                title: "Booking Confirmed",
-                message: `Your booking ${bookingRef} for ${roomName} has been confirmed.`,
-              });
-            } else if (newStatus.status === "cancelled") {
-              notifications.push({
-                type: "booking",
-                title: "Booking Cancelled",
-                message: `Your booking ${bookingRef} for ${roomName} has been cancelled.`,
-              });
-            } else if (newStatus.status === "completed") {
-              notifications.push({
-                type: "booking",
-                title: "Stay Completed",
-                message: `Your stay for booking ${bookingRef} has been marked as completed.`,
-              });
-            }
-          }
-
-          if (oldStatus.paymentStatus !== newStatus.paymentStatus) {
-            if (newStatus.paymentStatus === "paid") {
-              notifications.push({
-                type: "payment",
-                title: "Payment Confirmed",
-                message: `Your payment for booking ${bookingRef} has been marked as paid.`,
-              });
-            } else if (newStatus.paymentStatus === "partial") {
-              notifications.push({
-                type: "payment",
-                title: "Partial Payment Received",
-                message: `A partial payment for booking ${bookingRef} has been recorded.`,
-              });
-            }
-          }
-
-          for (const notification of notifications) {
-            if (!isActive) return;
-
-            addDoc(collection(customerDb, "Notifications"), {
-              userId: customerUid,
-              role: "customer",
-              bookingId,
-              type: notification.type,
-              title: notification.title,
-              message: notification.message,
-              targetPath: `/booking-confirmation/${bookingId}`,
-              read: false,
-              createdAt: serverTimestamp(),
-            }).catch((error) => {
-              console.error("Could not create customer notification:", error);
-            });
-          }
-        });
       },
       (error) => {
         console.error("Booking listener error:", error);
@@ -365,7 +255,7 @@ function BookingHistoryContent() {
     return unsubscribe;
   }, [user]);
 
-  const handleCancel = async (id: string) => {
+  const performCancel = async (id: string) => {
     try {
       await updateDoc(doc(customerDb, "Bookings", id), {
         status: "cancelled",
@@ -383,7 +273,11 @@ function BookingHistoryContent() {
     }
   };
 
-  const handleModify = async () => {
+  const handleCancel = (id: string) => {
+    return cancelAction.run(() => performCancel(id));
+  };
+
+  const performModify = async () => {
     if (!modifyTarget || !modifyDates.checkIn || !modifyDates.checkOut) {
       setModifyError("Please select both check-in and check-out dates.");
       return;
@@ -424,8 +318,9 @@ function BookingHistoryContent() {
     const amountPaid = Number(modifyTarget.amountPaid || 0);
     const remainingBalance = Math.max(0, totalPrice - amountPaid);
 
-    const paymentStatus =
-      remainingBalance <= 0 ? "paid" : amountPaid > 0 ? "partial" : "unpaid";
+    const { paymentStatus } = getPaymentSummary({
+      totalPrice, amountPaid, paymentStatus: modifyTarget.paymentStatus,
+    });
 
     setModifyError("");
 
@@ -468,6 +363,10 @@ function BookingHistoryContent() {
     }
   };
 
+  const handleModify = () => {
+    return modifyAction.run(() => performModify());
+  };
+
   const openReviewModal = (booking: BookingWithPayment) => {
     if (!isReviewEligible(booking.status)) return;
 
@@ -490,7 +389,7 @@ function BookingHistoryContent() {
     setReviewSuccess(false);
   };
 
-  const handleSubmitReview = async () => {
+  const performSubmitReview = async () => {
     const currentUser = auth.currentUser;
     const target = reviewTarget;
 
@@ -579,6 +478,10 @@ function BookingHistoryContent() {
     }
   };
 
+  const handleSubmitReview = () => {
+    return reviewAction.run(() => performSubmitReview());
+  };
+
   const statusColors: Record<string, string> = {
     confirmed: "bg-green-100 text-green-700",
     pending: "bg-yellow-100 text-yellow-700",
@@ -592,6 +495,8 @@ function BookingHistoryContent() {
     paid: "bg-green-50 text-green-600",
     partial: "bg-orange-50 text-orange-600",
     unpaid: "bg-red-50 text-red-600",
+    pending_verification: "bg-amber-100 text-amber-700",
+    rejected: "bg-red-50 text-red-600",
   };
 
   const totalSpent = bookings
@@ -734,12 +639,7 @@ function BookingHistoryContent() {
             const hasReviewed = reviewedBookingIds.includes(booking.id);
             const normalizedStatus = normalizeStatus(booking.status);
 
-            const paymentStatus =
-              remainingBalance <= 0
-                ? "paid"
-                : amountPaid > 0
-                  ? "partial"
-                  : "unpaid";
+            const { paymentStatus } = getPaymentSummary(booking);
 
             return (
               <div
@@ -801,7 +701,11 @@ function BookingHistoryContent() {
                             ? "Paid"
                             : paymentStatus === "partial"
                               ? "Partial"
-                              : "Unpaid"}
+                              : paymentStatus === "pending_verification"
+                                ? "Pending Verification"
+                                : paymentStatus === "rejected"
+                                  ? "Payment Rejected"
+                                  : "Unpaid"}
                         </span>
                       </div>
                     </div>
@@ -876,6 +780,8 @@ function BookingHistoryContent() {
                       </Link>
 
                       {remainingBalance > 0 &&
+                        paymentStatus !== "pending_verification" &&
+                        paymentStatus !== "paid" &&
                         normalizedStatus !== "cancelled" && (
                           <Link
                             to={`/payment?bookingId=${booking.id}`}
@@ -965,6 +871,7 @@ function BookingHistoryContent() {
               <button
                 type="button"
                 onClick={() => setCancelTarget(null)}
+                disabled={cancelAction.pending}
                 className="flex-1 border border-border text-foreground py-2.5 rounded-xl text-sm hover:bg-muted transition-colors"
               >
                 Keep Booking
@@ -973,9 +880,11 @@ function BookingHistoryContent() {
               <button
                 type="button"
                 onClick={() => handleCancel(cancelTarget)}
+                disabled={cancelAction.pending}
+                aria-busy={cancelAction.pending}
                 className="flex-1 bg-destructive text-white py-2.5 rounded-xl text-sm font-medium hover:bg-red-700 transition-colors"
               >
-                Yes, Cancel
+                {cancelAction.pending ? "Cancelling..." : "Yes, Cancel"}
               </button>
             </div>
           </div>
@@ -1084,6 +993,7 @@ function BookingHistoryContent() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (modifyAction.pending) return;
                       setModifyTarget(null);
                       setModifyError("");
                     }}
@@ -1095,9 +1005,11 @@ function BookingHistoryContent() {
                   <button
                     type="button"
                     onClick={handleModify}
+                    disabled={modifyAction.pending || modifySuccess}
+                    aria-busy={modifyAction.pending}
                     className="flex-1 bg-primary text-white py-2.5 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
                   >
-                    Update
+                    {modifyAction.pending ? "Updating..." : "Update"}
                   </button>
                 </div>
               </>

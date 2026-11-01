@@ -1,3 +1,4 @@
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router";
 import { useApp } from "../context/AppContext";
@@ -44,11 +45,17 @@ const guestLinks = [
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const logoutAction = useAsyncAction();
+  const markAllAction = useAsyncAction();
+
   const {
     user,
     logout,
     unreadCount,
     notifications,
+    notificationsLoading,
+    notificationsError,
+    retryNotifications,
     markNotificationRead,
     markAllRead,
   } = useApp();
@@ -61,6 +68,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationActionError, setNotificationActionError] = useState("");
 
   const resortName =
     resortSettings.resortName?.trim() || "Sabang Beach and Diving Resort";
@@ -73,7 +81,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const resortPhone = resortSettings.phone?.trim() || "";
   const resortEmail = resortSettings.email?.trim() || "";
 
-  const handleLogout = async () => {
+  const performLogout = async () => {
     try {
       await logout();
     } finally {
@@ -82,6 +90,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       setNotificationsOpen(false);
       navigate("/");
     }
+  };
+
+  const handleLogout = () => {
+    return logoutAction.run(() => performLogout());
   };
 
   const isActive = (href: string) =>
@@ -113,12 +125,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const handleNotificationClick = async (notification: any) => {
+    setNotificationActionError("");
     try {
       if (!notification.read) {
         await markNotificationRead(notification.id);
       }
     } catch (error) {
       console.error("Unable to mark notification as read:", error);
+      setNotificationActionError("The notification could not be marked as read. Please try again.");
     } finally {
       setNotificationsOpen(false);
     }
@@ -128,12 +142,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleMarkAllRead = async () => {
+  const performMarkAllRead = async () => {
+    setNotificationActionError("");
     try {
       await markAllRead();
     } catch (error) {
       console.error("Unable to mark all notifications as read:", error);
+      setNotificationActionError("Notifications could not be marked as read. Please try again.");
     }
+  };
+
+  const handleMarkAllRead = () => {
+    return markAllAction.run(() => performMarkAllRead());
   };
 
   return (
@@ -245,7 +265,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             </h3>
 
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {unreadCount > 0
+                              {notificationsLoading ? "Loading updates..." :
+                                notificationsError || notificationActionError ? "Some updates are unavailable" : unreadCount > 0
                                 ? `${unreadCount} unread`
                                 : "You're all caught up"}
                             </p>
@@ -255,16 +276,43 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             <button
                               type="button"
                               onClick={handleMarkAllRead}
+                              disabled={markAllAction.pending}
+                              aria-busy={markAllAction.pending}
                               className="self-start sm:self-auto text-xs font-medium text-primary hover:text-primary/70 flex items-center gap-1 whitespace-nowrap transition-colors"
                             >
                               <CheckCheck className="w-4 h-4 flex-shrink-0" />
-                              Mark all read
+                              {markAllAction.pending ? "Updating..." : "Mark all read"}
                             </button>
                           )}
                         </div>
 
+                        {(notificationsError || notificationActionError) && (
+                          <div role="alert" className="border-b border-border bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                            <p>{notificationsError || notificationActionError}</p>
+                            <button
+                              type="button"
+                              disabled={notificationsLoading}
+                              onClick={() => {
+                                setNotificationActionError("");
+                                retryNotifications();
+                              }}
+                              className="mt-2 font-semibold underline disabled:opacity-50"
+                            >
+                              {notificationsLoading ? "Retrying..." : "Retry updates"}
+                            </button>
+                          </div>
+                        )}
+
                         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain max-h-[calc(100dvh-12rem)] md:max-h-none">
-                          {!notifications || notifications.length === 0 ? (
+                          {notificationsLoading && notifications.length === 0 ? (
+                            <p role="status" className="px-5 py-10 text-center text-sm text-muted-foreground">
+                              Loading notifications...
+                            </p>
+                          ) : (notificationsError || notificationActionError) && notifications.length === 0 ? (
+                            <p className="px-5 py-6 text-center text-xs text-muted-foreground">
+                              Your updates will appear here when the connection is restored.
+                            </p>
+                          ) : !notifications || notifications.length === 0 ? (
                             <div className="px-5 py-10 text-center">
                               <div className="w-12 h-12 rounded-full bg-muted mx-auto flex items-center justify-center mb-3">
                                 <Bell className="w-5 h-5 text-muted-foreground" />
@@ -400,10 +448,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           <button
                             type="button"
                             onClick={handleLogout}
+                            disabled={logoutAction.pending}
+                            aria-busy={logoutAction.pending}
                             className="flex items-center gap-3 px-4 py-2 text-sm text-destructive hover:bg-red-50 w-full transition-colors"
                           >
                             <LogOut className="w-4 h-4" />
-                            Sign Out
+                            {logoutAction.pending ? "Signing out..." : "Sign Out"}
                           </button>
                         </div>
                       </div>

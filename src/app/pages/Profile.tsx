@@ -1,3 +1,4 @@
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useApp } from "../context/AppContext";
@@ -182,6 +183,10 @@ export default function Profile() {
 }
 
 function ProfileContent() {
+  const profileAction = useAsyncAction();
+  const passwordAction = useAsyncAction();
+  const logoutAction = useAsyncAction();
+
   const { user, updateProfile, logout } = useApp();
 
   const navigate = useNavigate();
@@ -314,7 +319,7 @@ function ProfileContent() {
   const inputClass =
     "w-full px-4 py-2.5 rounded-xl border border-border bg-white text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary";
 
-  const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
+  const performSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     setSaved(false);
@@ -437,7 +442,12 @@ function ProfileContent() {
     }
   };
 
-  const handlePasswordChange = async (
+  const handleSave = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    return profileAction.run(() => performSave(event));
+  };
+
+  const performPasswordChange = async (
     event: React.FormEvent<HTMLFormElement>,
   ) => {
     event.preventDefault();
@@ -525,7 +535,12 @@ function ProfileContent() {
     }
   };
 
-  const handleAvatarSelect = async (
+  const handlePasswordChange = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    return passwordAction.run(() => performPasswordChange(event));
+  };
+
+  const performAvatarSelect = async (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const input = event.target;
@@ -666,6 +681,10 @@ function ProfileContent() {
     }
   };
 
+  const handleAvatarSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    return profileAction.run(() => performAvatarSelect(event));
+  };
+
   const memberSince = user?.memberSince || "—";
 
   const avatarSrc =
@@ -729,7 +748,7 @@ function ProfileContent() {
                 accept="image/*"
                 className="hidden"
                 onChange={handleAvatarSelect}
-                disabled={uploadingAvatar}
+                disabled={profileAction.pending || uploadingAvatar}
               />
             </div>
 
@@ -788,17 +807,19 @@ function ProfileContent() {
 
               <button
                 type="button"
-                onClick={async () => {
+                disabled={logoutAction.pending}
+                aria-busy={logoutAction.pending}
+                onClick={() => logoutAction.run(async () => {
                   await logout();
 
                   navigate("/", {
                     replace: true,
                   });
-                }}
+                })}
                 className="w-full text-left px-4 py-2.5 rounded-xl text-sm font-medium text-destructive hover:bg-red-50 transition-colors flex items-center gap-2"
               >
                 <LogOut className="w-4 h-4" />
-                Sign Out
+                {logoutAction.pending ? "Signing out..." : "Sign Out"}
               </button>
             </div>
           </div>
@@ -989,7 +1010,7 @@ function ProfileContent() {
               <div className="flex justify-end mt-5">
                 <button
                   type="submit"
-                  disabled={saving || uploadingAvatar}
+                  disabled={profileAction.pending || saving || uploadingAvatar}
                   className="bg-primary text-white text-sm font-medium px-6 py-2.5 rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {saving && <Loader2 className="w-4 h-4 animate-spin" />}

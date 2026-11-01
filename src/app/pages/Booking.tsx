@@ -1,3 +1,4 @@
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { useApp } from "../context/AppContext";
@@ -38,6 +39,8 @@ type SelectedAddOn = {
 };
 
 export default function BookingPage() {
+  const bookingAction = useAsyncAction();
+
   const { id } = useParams();
   const { user, createNotification } = useApp();
   const navigate = useNavigate();
@@ -424,7 +427,7 @@ export default function BookingPage() {
     );
   };
 
-  const handleConfirm = async () => {
+  const performConfirm = async () => {
     const currentUser = auth.currentUser;
 
     if (!currentUser) {
@@ -554,6 +557,10 @@ export default function BookingPage() {
     }
   };
 
+  const handleConfirm = () => {
+    return bookingAction.run(() => performConfirm());
+  };
+
   const inputClass =
     "w-full px-4 py-2.5 rounded-xl border border-border bg-white text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary";
 
@@ -681,6 +688,7 @@ export default function BookingPage() {
         <div className="flex gap-3">
           <button
             onClick={() => setStep("form")}
+            disabled={bookingAction.pending}
             className="flex-1 border border-border text-foreground py-3 rounded-xl text-sm font-medium hover:bg-muted transition-colors"
           >
             Edit Details
@@ -688,9 +696,11 @@ export default function BookingPage() {
 
           <button
             onClick={handleConfirm}
+            disabled={bookingAction.pending}
+            aria-busy={bookingAction.pending}
             className="flex-1 bg-accent text-white py-3 rounded-xl text-sm font-semibold hover:bg-accent/90 transition-colors"
           >
-            Confirm Booking
+            {bookingAction.pending ? "Submitting Booking..." : "Confirm Booking"}
           </button>
         </div>
       </div>
