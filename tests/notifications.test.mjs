@@ -112,6 +112,7 @@ function harness() {
     react,
     "react/jsx-runtime": { jsx: (type, props) => ({ type, props }) },
     "../utils/bookingNotifications": bookingHelpers,
+    "../services/customerBookings": {},
     "../components/firebase": { auth, customerDb: {} },
     "firebase/auth": {
       onAuthStateChanged: (unused, callback) => {

@@ -3,7 +3,7 @@ import { activityRating } from "../utils/bookingPresentation";
 import { ActivityRating } from "../components/ActivityRating";
 import { Link, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 import { customerDb, db } from "../components/firebase";
 import {
   Star,
@@ -400,7 +400,7 @@ export default function Landing() {
     [],
   );
   const [services, setServices] = useState<Service[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
+  const reviews = activityReviews.reviews as Review[];
   const [inventoryRooms, setInventoryRooms] = useState<FirestoreRoom[]>([]);
   const [bookings, setBookings] = useState<FirestoreBooking[]>([]);
 
@@ -460,18 +460,11 @@ export default function Landing() {
         const [
           roomTypesSnapshot,
           servicesSnapshot,
-          reviewsSnapshot,
           inventorySnapshot,
           bookingsSnapshot,
         ] = await Promise.all([
           getDocs(collection(db, "roomTypes")),
           getDocs(collection(db, "services")),
-          getDocs(
-            query(
-              collection(customerDb, "reviews"),
-              where("status", "==", "published"),
-            ),
-          ),
           getDocs(collection(db, "rooms")),
           getDocs(collection(customerDb, "Bookings")),
         ]);
@@ -498,62 +491,6 @@ export default function Landing() {
               duration: String(data.duration ?? ""),
             };
           }),
-        );
-
-        setReviews(
-          reviewsSnapshot.docs
-            .map((docSnap) => {
-              const data = docSnap.data();
-              const createdAt = data.createdAt;
-
-              const reviewDate =
-                typeof data.date === "string"
-                  ? data.date
-                  : createdAt &&
-                      typeof createdAt === "object" &&
-                      "toDate" in createdAt &&
-                      typeof createdAt.toDate === "function"
-                    ? createdAt.toDate().toISOString()
-                    : "";
-
-              return {
-                id: docSnap.id,
-                bookingId: data.bookingId,
-                bookingRef: data.bookingRef,
-                guestName: String(data.guestName ?? "Guest"),
-                guestAvatar:
-                  typeof data.guestAvatar === "string"
-                    ? data.guestAvatar
-                    : undefined,
-                roomName:
-                  typeof data.roomName === "string" ? data.roomName : undefined,
-                serviceName:
-                  typeof data.serviceName === "string"
-                    ? data.serviceName
-                    : undefined,
-                packageName:
-                  typeof data.packageName === "string"
-                    ? data.packageName
-                    : undefined,
-                rating: Number(data.rating ?? 0),
-                comment: String(data.comment ?? ""),
-                date: reviewDate,
-                status: data.status,
-                sortDate:
-                  createdAt &&
-                  typeof createdAt === "object" &&
-                  "toDate" in createdAt &&
-                  typeof createdAt.toDate === "function"
-                    ? createdAt.toDate().getTime()
-                    : Date.parse(reviewDate) || 0,
-              };
-            })
-            .sort(
-              (a, b) =>
-                Number((b as Review & { sortDate?: number }).sortDate ?? 0) -
-                Number((a as Review & { sortDate?: number }).sortDate ?? 0),
-            )
-            .map(({ sortDate: _sortDate, ...review }) => review as Review),
         );
 
         setInventoryRooms(
@@ -717,7 +654,7 @@ export default function Landing() {
 
   const validRatings = reviews
     .map((review) => Number(review.rating))
-    .filter((rating) => Number.isFinite(rating) && rating >= 1 && rating <= 5);
+    .filter((rating) => Number.isInteger(rating) && rating >= 1 && rating <= 5);
 
   const averageRating =
     validRatings.length > 0
@@ -1131,7 +1068,7 @@ export default function Landing() {
 
             const ratings = roomReviews
               .map((review) => Number(review.rating))
-              .filter((rating) => rating >= 1 && rating <= 5);
+              .filter((rating) => Number.isInteger(rating) && rating >= 1 && rating <= 5);
 
             const roomAverage =
               ratings.length > 0

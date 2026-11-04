@@ -1,43 +1,105 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    match /Users/{userId} {
-      allow read, write: if request.auth != null
-        && request.auth.uid == userId;
+    function signedIn() { return request.auth != null; }
+    // Staff authority must come from trusted Auth custom claims, never a client-editable Users field.
+    function staff() { return signedIn() && request.auth.token.get('role', '') in ['admin', 'manager', 'receptionist']; }
+    function owner(data) { return signedIn() && data.userId == request.auth.uid; }
+    function completed(data) { return data.status.lower() in ['completed', 'checked-out', 'checked out', 'checked_out', 'checkedout', 'finished']; }
+    function validCancellation() {
+      return resource.data.status in ['pending', 'confirmed']
+        && request.resource.data.status == 'cancelled'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt'])
+        && request.resource.data.cancelledAt == request.time;
     }
-
+    match /Users/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+      match /chatSessions/{sessionId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow create, update: if signedIn() && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly(['title', 'createdAt', 'updatedAt'])
+          && request.resource.data.title is string && request.resource.data.title.size() <= 100
+          && request.resource.data.createdAt is number && request.resource.data.updatedAt is number;
+        allow delete: if false;
+        match /messages/{messageId} {
+          allow read: if signedIn() && request.auth.uid == userId;
+          allow create: if signedIn() && request.auth.uid == userId
+            && request.resource.data.keys().hasOnly(['id', 'role', 'text', 'createdAt', 'timestamp'])
+            && request.resource.data.id == messageId
+            && request.resource.data.role in ['user', 'ai']
+            && request.resource.data.text is string && request.resource.data.text.size() <= 100000
+            && request.resource.data.createdAt is number && request.resource.data.timestamp is string;
+          allow update: if signedIn() && request.auth.uid == userId && request.resource.data == resource.data;
+          allow delete: if false;
+        }
+      }
+    }
     match /Bookings/{bookingId} {
-
-      allow create: if request.auth != null;
-
+      allow create: if owner(request.resource.data) && request.resource.data.status == 'pending'
+        && request.resource.data.get('amountPaid', 0) == 0 && request.resource.data.paymentStatus == 'unpaid';
+      // Existing public availability screens depend on these reads. Do not tighten
+      // them without first supplying a privacy-safe inventory source for those screens.
       allow read: if true;
-
-      allow update: if request.auth != null
-        && resource.data.userId == request.auth.uid;
-
+      allow update: if staff() || (owner(resource.data)
+        && request.resource.data.userId == resource.data.userId
+        && (validCancellation() || (
+          request.resource.data.status == resource.data.status
+          && request.resource.data.get('amountPaid', 0) == resource.data.get('amountPaid', 0)
+          && request.resource.data.get('bookingRef', '') == resource.data.get('bookingRef', '')
+          && request.resource.data.get('cancelledAt', null) == resource.data.get('cancelledAt', null)
+        )));
       allow delete: if false;
     }
-
-    match /roomTypes/{roomTypeId} {
-      allow read: if true;
-      allow write: if false;
+    match /reviews/{reviewId} {
+      function ownedBooking(id) { return signedIn() && get(/databases/$(database)/documents/Bookings/$(id)).data.userId == request.auth.uid; }
+      function validReview(data) {
+        return data.rating is int && data.rating >= 1 && data.rating <= 5
+          && data.comment is string && data.comment.size() >= 5 && data.comment.size() <= 1000;
+      }
+      allow list: if resource.data.status == 'published' || owner(resource.data) || staff();
+      allow get: if ownedBooking(reviewId) || staff() || resource.data.status == 'published' || owner(resource.data);
+      allow create: if owner(request.resource.data) && reviewId == request.resource.data.bookingId
+        && ownedBooking(reviewId) && completed(get(/databases/$(database)/documents/Bookings/$(reviewId)).data)
+        && validReview(request.resource.data) && request.resource.data.status == 'published'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.keys().hasOnly(['bookingId', 'bookingRef', 'userId', 'guestName', 'guestAvatar',
+          'rating', 'comment', 'date', 'createdAt', 'status', 'category', 'roomId', 'roomName',
+          'itemId', 'itemType', 'itemName', 'serviceId', 'serviceName', 'packageId', 'packageName']);
+      allow update: if staff() || (owner(resource.data) && validReview(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']));
+      allow delete: if owner(resource.data) || staff();
     }
-
-    match /rooms/{roomId} {
-      allow read: if true;
-      allow write: if false;
+    match /Notifications/{notificationId} {
+      allow list: if owner(resource.data) || staff();
+      allow get: if signedIn() && (!exists(/databases/$(database)/documents/Notifications/$(notificationId)) || owner(resource.data) || staff());
+      allow create: if owner(request.resource.data) || staff();
+      allow update: if staff() || (owner(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) && request.resource.data.read is bool);
+      allow delete: if false;
     }
-
-    match /services/{serviceId} {
-      allow read: if true;
-      allow write: if false;
+    match /Payments/{paymentId} {
+      allow read: if staff() || (signedIn() && resource.data.customerId == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.customerId == request.auth.uid
+        && get(/databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)).data.userId == request.auth.uid
+        && request.resource.data.status == 'pending' && request.resource.data.verificationStatus == 'pending'
+        && request.resource.data.amount is number && request.resource.data.amount > 0;
+      allow update: if staff();
+      allow delete: if false;
     }
-
-    match /packages/{packageId} {
-      allow read: if true;
-      allow write: if false;
+    match /Inquiries/{inquiryId} {
+      allow read: if owner(resource.data) || staff();
+      allow create: if owner(request.resource.data);
+      allow update: if staff();
+      allow delete: if false;
+      match /replies/{replyId} {
+        function inquiryOwner() { return owner(get(/databases/$(database)/documents/Inquiries/$(inquiryId)).data); }
+        allow read: if inquiryOwner() || staff();
+        allow create: if staff() || (inquiryOwner() && request.resource.data.userId == request.auth.uid && request.resource.data.sender == 'customer');
+        allow update, delete: if false;
+      }
     }
+    match /roomTypes/{id} { allow read: if true; allow write: if false; }
+    match /rooms/{id} { allow read: if true; allow write: if false; }
+    match /services/{id} { allow read: if true; allow write: if false; }
+    match /packages/{id} { allow read: if true; allow write: if false; }
   }
 }

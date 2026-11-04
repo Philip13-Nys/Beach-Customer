@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { useApp } from "../context/AppContext";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -19,7 +19,7 @@ import { verifyTurnstile } from "../components/verifyTurnstile";
 const DEFAULT_RESORT_NAME = "Sabang Beach and Diving Resort";
 
 export default function Auth() {
-  const { user, login, register, googleLogin, googleRegister } = useApp();
+  const { user, authLoading, login, register, googleLogin, googleRegister } = useApp();
 
   const [resortName, setResortName] = useState(DEFAULT_RESORT_NAME);
 
@@ -31,6 +31,11 @@ export default function Auth() {
 
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const requestedReturn = location.state?.returnTo ||
+    (location.state?.from ? `${location.state.from.pathname || ""}${location.state.from.search || ""}` : "") || params.get("returnTo");
+  const authDestination = typeof requestedReturn === "string" && requestedReturn.startsWith("/") &&
+    !requestedReturn.startsWith("//") && !requestedReturn.startsWith("/auth") ? requestedReturn : "/";
 
   const [tab, setTab] = useState<"login" | "register">(
     params.get("tab") === "register" ? "register" : "login",
@@ -131,10 +136,10 @@ export default function Auth() {
   }, []);
 
   useEffect(() => {
-    if (user) {
-      navigate("/");
+    if (!authLoading && user) {
+      navigate(authDestination, { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, authLoading, authDestination, navigate]);
 
   const handleForgotPassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -234,7 +239,7 @@ export default function Auth() {
       const success = await login(loginEmail.trim(), loginPassword);
 
       if (success) {
-        navigate("/");
+        navigate(authDestination, { replace: true });
       } else {
         setLoginError("Invalid email or password.");
       }
@@ -291,7 +296,7 @@ export default function Auth() {
       const success = await googleLogin();
 
       if (success) {
-        navigate("/");
+        navigate(authDestination, { replace: true });
       }
     } catch (error: any) {
       console.error("Google login error:", error);
@@ -475,7 +480,7 @@ export default function Auth() {
       });
 
       if (success) {
-        navigate("/");
+        navigate(authDestination, { replace: true });
       }
     } catch (error: any) {
       console.error("Google registration error:", error);

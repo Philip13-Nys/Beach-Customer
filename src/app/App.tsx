@@ -1,3 +1,4 @@
+import { ChatProvider } from "./context/ChatContext";
 import { HashRouter, Routes, Route } from "react-router";
 import { AppProvider } from "./context/AppContext";
 
@@ -19,6 +20,7 @@ import AIAssistant from "./pages/AIAssistant";
 export default function App() {
   return (
     <AppProvider>
+      <ChatProvider>
       <HashRouter>
         <Routes>
           <Route path="/auth" element={<Auth />} />
@@ -54,6 +56,7 @@ export default function App() {
           />
         </Routes>
       </HashRouter>
+      </ChatProvider>
     </AppProvider>
   );
 }

@@ -1,0 +1,6 @@
+{
+  "project": "customeraccount-ce2ae",
+  "release": "projects/customeraccount-ce2ae/releases/cloud.firestore",
+  "previousRuleset": "projects/customeraccount-ce2ae/rulesets/cd2fb270-a754-4f5c-a663-bb4ccc75d4b8",
+  "sourceName": "firestore.rules"
+}

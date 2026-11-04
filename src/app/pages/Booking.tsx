@@ -1122,7 +1122,7 @@ export default function BookingPage() {
 
               <div className="flex items-center gap-2 text-xs text-muted-foreground mb-4 p-2.5 bg-secondary rounded-xl">
                 <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" />
-                Free cancellation up to 48 hours before check-in.
+                Pending and confirmed bookings can be cancelled from Booking History.
               </div>
 
               <button

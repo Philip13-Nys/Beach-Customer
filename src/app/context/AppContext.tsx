@@ -1,3 +1,4 @@
+import { cancelCustomerBooking } from "../services/customerBookings";
 import {
   createContext,
   useContext,
@@ -65,7 +66,7 @@ export interface Booking {
 
   status: "confirmed" | "pending" | "cancelled" | "completed";
 
-  paymentStatus: "paid" | "partial" | "unpaid" | "pending_verification";
+  paymentStatus: "paid" | "partial" | "unpaid" | "pending_verification" | "rejected";
 
   paymentMethod?: string;
   transactionId?: string;
@@ -105,6 +106,7 @@ interface CreateNotificationInput {
 
 interface AppContextType {
   user: User | null;
+  authLoading: boolean;
 
   login: (email: string, password: string) => Promise<boolean>;
   googleLogin: () => Promise<boolean>;
@@ -128,7 +130,7 @@ interface AppContextType {
 
   bookings: Booking[];
   addBooking: (booking: Booking) => void;
-  cancelBooking: (id: string) => void;
+  cancelBooking: (id: string) => Promise<void>;
   modifyBooking: (id: string, updates: Partial<Booking>) => void;
 
   notifications: Notification[];
@@ -176,6 +178,7 @@ function safeEventId(eventId: string): string {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [pendingPayment, setPendingPayment] = useState<Booking | null>(null);
@@ -187,17 +190,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const failedNotifications = useRef(new Map<string, { userId: string; input: CreateNotificationInput }>());
 
   useEffect(() => {
+    let active = true;
+    let generation = 0;
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      const currentGeneration = ++generation;
+      setAuthLoading(true);
       if (!firebaseUser) {
         setUser(null);
         setBookings([]);
         setNotifications([]);
+        setAuthLoading(false);
         return;
       }
 
       try {
         const userRef = doc(customerDb, "Users", firebaseUser.uid);
         const snap = await getDoc(userRef);
+        if (!active || generation !== currentGeneration) return;
 
         if (!snap.exists()) {
           const newUser = {
@@ -216,6 +225,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           };
 
           await setDoc(userRef, newUser);
+          if (!active || generation !== currentGeneration) return;
 
           setUser({
             id: firebaseUser.uid,
@@ -243,11 +253,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       } catch (error) {
         console.error("Error loading user profile:", error);
-        setUser(null);
+        if (active && generation === currentGeneration) setUser(null);
+      } finally {
+        if (active && generation === currentGeneration) setAuthLoading(false);
       }
     });
 
-    return unsubscribe;
+    return () => { active = false; generation++; unsubscribe(); };
   }, []);
 
   const register = async (data: {
@@ -669,9 +681,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const booking = bookings.find((item) => item.id === id);
 
-      await updateDoc(doc(customerDb, "Bookings", id), {
-        status: "cancelled",
-      });
+      await cancelCustomerBooking(id);
 
       setBookings((prev) =>
         prev.map((bookingItem) =>
@@ -717,6 +727,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider
       value={{
         user,
+        authLoading,
         login,
         register,
         googleLogin,

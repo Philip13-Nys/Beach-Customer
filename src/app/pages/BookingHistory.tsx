@@ -1,8 +1,9 @@
+import { cancellationReason, isCompletedBooking } from "../utils/bookingPolicy";
+import { cancelCustomerBooking, submitBookingReview } from "../services/customerBookings";
 import {
   bookingKind,
   bookingName,
   bookingStatusLabel,
-  bookingReviewFields,
 } from "../utils/bookingPresentation";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { Link, Navigate, useLocation } from "react-router";
@@ -28,9 +29,6 @@ import {
   doc,
   updateDoc,
   onSnapshot,
-  addDoc,
-  getDocs,
-  serverTimestamp,
 } from "firebase/firestore";
 import { auth, customerDb } from "../components/firebase";
 
@@ -69,10 +67,7 @@ type ReviewTarget = BookingWithPayment;
 const normalizeStatus = (status?: string) =>
   (status || "").toLowerCase().trim();
 
-const isReviewEligible = (status?: string) =>
-  ["completed", "checkedout", "finished"].includes(
-    normalizeStatus(status).replace(/[\s_-]/g, ""),
-  );
+const isReviewEligible = isCompletedBooking;
 
 function bookingCreatedTime(value: any): number {
   const time =
@@ -89,9 +84,10 @@ function bookingCreatedTime(value: any): number {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { user } = useApp();
+  const { user, authLoading } = useApp();
   const location = useLocation();
 
+  if (authLoading) return <p role="status" className="py-12 text-center text-muted-foreground">Loading your account...</p>;
   if (!user) {
     return <Navigate to="/auth" replace state={{ from: location }} />;
   }
@@ -156,10 +152,14 @@ function BookingHistoryContent() {
   const { user } = useApp();
 
   const [bookings, setBookings] = useState<BookingWithPayment[]>([]);
+  const [bookingsLoading, setBookingsLoading] = useState(true);
+  const [bookingsError, setBookingsError] = useState("");
   const [filter, setFilter] = useState<
     "all" | "confirmed" | "completed" | "cancelled"
   >("all");
 
+  const [cancelMessage, setCancelMessage] = useState("");
+  const [cancelError, setCancelError] = useState("");
   const [cancelTarget, setCancelTarget] = useState<string | null>(null);
   const [modifyTarget, setModifyTarget] = useState<BookingWithPayment | null>(
     null,
@@ -195,6 +195,7 @@ function BookingHistoryContent() {
 
     if (!user || !currentUser) {
       setBookings([]);
+      setBookingsLoading(false);
       return;
     }
 
@@ -203,6 +204,8 @@ function BookingHistoryContent() {
     if (user.id && user.id !== customerUid) {
       console.error("Booking History user does not match auth.currentUser.");
       setBookings([]);
+      setBookingsLoading(false);
+      setBookingsError("Your session could not be verified. Please log in again.");
       return;
     }
 
@@ -212,6 +215,8 @@ function BookingHistoryContent() {
     );
 
     let isActive = true;
+    setBookingsLoading(true);
+    setBookingsError("");
 
     const unsubscribe = onSnapshot(
       bookingsQuery,
@@ -255,9 +260,15 @@ function BookingHistoryContent() {
             a.id.localeCompare(b.id),
         );
         setBookings(bookingList);
+        setBookingsLoading(false);
+        setBookingsError("");
       },
       (error) => {
         console.error("Booking listener error:", error);
+        if (isActive) {
+          setBookingsLoading(false);
+          setBookingsError("Unable to load your booking history. Please refresh and try again.");
+        }
       },
     );
 
@@ -299,9 +310,9 @@ function BookingHistoryContent() {
 
   const performCancel = async (id: string) => {
     try {
-      await updateDoc(doc(customerDb, "Bookings", id), {
-        status: "cancelled",
-      });
+      setCancelError("");
+      setCancelMessage("");
+      await cancelCustomerBooking(id);
 
       setBookings((previous) =>
         previous.map((booking) =>
@@ -310,8 +321,10 @@ function BookingHistoryContent() {
       );
 
       setCancelTarget(null);
+      setCancelMessage("Booking cancelled successfully. Any refund must be arranged with the resort.");
     } catch (error) {
       console.error("Error cancelling booking:", error);
+      setCancelError(error instanceof Error ? error.message : "Unable to cancel this booking. Please try again.");
     }
   };
 
@@ -473,39 +486,7 @@ function BookingHistoryContent() {
     setReviewError("");
 
     try {
-      const existingReviewQuery = query(
-        collection(customerDb, "reviews"),
-        where("userId", "==", currentUser.uid),
-        where("bookingId", "==", target.id),
-      );
-
-      const existingReviews = await getDocs(existingReviewQuery);
-
-      if (!existingReviews.empty) {
-        setReviewedBookingIds((previous) =>
-          previous.includes(target.id) ? previous : [...previous, target.id],
-        );
-
-        setReviewError("You have already reviewed this booking.");
-        return;
-      }
-
-      const guestName =
-        currentUser.displayName || currentUser.email?.split("@")[0] || "Guest";
-
-      await addDoc(collection(customerDb, "reviews"), {
-        bookingId: target.id,
-        bookingRef: target.bookingRef || target.id,
-        userId: currentUser.uid,
-        guestName,
-        guestAvatar: currentUser.photoURL || "",
-        ...bookingReviewFields(target),
-        rating: reviewRating,
-        comment,
-        date: new Date().toISOString().slice(0, 10),
-        createdAt: serverTimestamp(),
-        status: "published",
-      });
+      await submitBookingReview(target.id, reviewRating, comment);
 
       setReviewedBookingIds((previous) =>
         previous.includes(target.id) ? previous : [...previous, target.id],
@@ -515,7 +496,7 @@ function BookingHistoryContent() {
     } catch (error) {
       console.error("Error submitting review:", error);
       setReviewError(
-        "Unable to submit your review. Please check your connection and try again.",
+        error instanceof Error ? error.message : "Unable to submit your review. Please try again.",
       );
     } finally {
       setReviewSubmitting(false);
@@ -572,6 +553,9 @@ function BookingHistoryContent() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      {cancelMessage && <p role="status" className="my-4 rounded-xl bg-green-50 p-3 text-sm text-green-800">{cancelMessage}</p>}
+      {cancelError && !cancelTarget && <p role="alert" className="my-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{cancelError}</p>}
+      {bookingsError && <p role="alert" className="my-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{bookingsError}</p>}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1
@@ -659,7 +643,9 @@ function BookingHistoryContent() {
         )}
       </div>
 
-      {filtered.length === 0 ? (
+      {bookingsLoading && !bookings.length ? <p role="status" className="py-12 text-center text-muted-foreground">Loading your bookings...</p>
+      : bookingsError && !bookings.length ? null
+      : filtered.length === 0 ? (
         <div className="text-center py-20">
           <div className="text-5xl mb-4">🏖️</div>
 
@@ -841,7 +827,6 @@ function BookingHistoryContent() {
                         )}
 
                       {normalizedStatus === "confirmed" && (
-                        <>
                           <button
                             type="button"
                             onClick={() => {
@@ -858,16 +843,21 @@ function BookingHistoryContent() {
                             <Edit2 className="w-3.5 h-3.5" />
                             Modify
                           </button>
+                      )}
 
+                      {["pending", "confirmed"].includes(normalizedStatus) && (
+                        <div>
                           <button
                             type="button"
-                            onClick={() => setCancelTarget(booking.id)}
-                            className="flex items-center gap-1.5 text-xs font-medium text-destructive px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-colors"
+                            onClick={() => { setCancelError(""); setCancelTarget(booking.id); }}
+                            disabled={Boolean(cancellationReason(booking)) || cancelAction.pending}
+                            className="disabled:opacity-50 flex items-center gap-1.5 text-xs font-medium text-destructive px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-colors"
                           >
                             <X className="w-3.5 h-3.5" />
-                            Cancel
+                            Cancel Booking
                           </button>
-                        </>
+                          {cancellationReason(booking) && <p className="mt-1 text-xs text-muted-foreground max-w-sm">{cancellationReason(booking)}</p>}
+                        </div>
                       )}
 
                       {isReviewEligible(booking.status) &&
@@ -897,11 +887,12 @@ function BookingHistoryContent() {
 
       {cancelTarget && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="cancel-booking-title" className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
             <div className="flex items-center gap-3 mb-3">
               <AlertTriangle className="w-6 h-6 text-destructive flex-shrink-0" />
 
               <h2
+                id="cancel-booking-title"
                 className="font-semibold text-foreground"
                 style={{ fontFamily: "var(--font-display)" }}
               >
@@ -910,11 +901,11 @@ function BookingHistoryContent() {
             </div>
 
             <p className="text-sm text-muted-foreground mb-5">
-              This action cannot be undone. Please review our cancellation
-              policy before proceeding. Free cancellation is available up to 48
-              hours before check-in.
+              This action cannot be undone. Your reservation will be marked as
+              cancelled. Cancelling does not automatically issue a refund.
             </p>
 
+            {cancelError && <p role="alert" className="mb-4 text-sm text-red-700">{cancelError}</p>}
             <div className="flex gap-3">
               <button
                 type="button"

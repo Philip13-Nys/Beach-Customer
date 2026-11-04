@@ -1,3 +1,5 @@
+import { useChat } from "../context/ChatContext";
+import { ChatText } from "./ChatText";
 import { useState, useRef, useEffect } from "react";
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router";
@@ -60,7 +62,7 @@ function cleanImageUrl(url: string) {
   return url.replace(/[),.!?;]+$/, "");
 }
 
-function renderMessageContent(text: string): ReactNode[] {
+function renderMessageContent(text: string, formatted: boolean): ReactNode[] {
   const parts: ReactNode[] = [];
   const regex = new RegExp(IMAGE_URL_REGEX.source, "gi");
 
@@ -76,7 +78,7 @@ function renderMessageContent(text: string): ReactNode[] {
 
     if (start > lastIndex) {
       parts.push(
-        <span key={`text-${lastIndex}`}>{text.slice(lastIndex, start)}</span>,
+        <span key={`text-${lastIndex}`}>{formatted ? <ChatText text={text.slice(lastIndex, start)} /> : text.slice(lastIndex, start)}</span>,
       );
     }
 
@@ -117,7 +119,7 @@ function renderMessageContent(text: string): ReactNode[] {
   }
 
   if (lastIndex < text.length) {
-    parts.push(<span key={`text-${lastIndex}`}>{text.slice(lastIndex)}</span>);
+    parts.push(<span key={`text-${lastIndex}`}>{formatted ? <ChatText text={text.slice(lastIndex)} /> : text.slice(lastIndex)}</span>);
   }
 
   return parts;
@@ -126,20 +128,20 @@ function renderMessageContent(text: string): ReactNode[] {
 export default function FloatingAI() {
   const location = useLocation();
   const { user } = useApp();
+  const chat = useChat();
 
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [typing, setTyping] = useState(false);
+  const typing = chat.busy;
   const [nudge, setNudge] = useState(false);
 
   const [resortSettings, setResortSettings] =
     useState<ResortSettings>(DEFAULT_SETTINGS);
 
-  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const msgs: Msg[] = chat.messages.length ? chat.messages : [{ role: "ai", text: `Hi${user?.firstName ? ` ${user.firstName}` : ""}! 👋 I am Cunag, your AI concierge. Ask me about rooms, activities, services, or the resort.` }];
 
   const endRef = useRef<HTMLDivElement>(null);
 
-  const userName = user?.firstName?.trim() || "";
 
   useEffect(() => {
     const settingsRef = doc(db, "publicSettings", "general");
@@ -201,27 +203,6 @@ export default function FloatingAI() {
   const resortName = resortSettings.resortName.trim() || DEFAULT_RESORT_NAME;
 
   useEffect(() => {
-    const greeting =
-      `Hi${userName ? ` ${userName}` : ""}! 👋 ` +
-      `I'm Cunag — your AI concierge at ${resortName}. ` +
-      "Ask me anything about our rooms, activities, services, or resort.";
-
-    setMsgs((previous) => {
-      if (previous.length === 0) {
-        return [{ role: "ai", text: greeting }];
-      }
-
-      if (previous[0]?.role === "ai") {
-        return previous.map((message, index) =>
-          index === 0 ? { ...message, text: greeting } : message,
-        );
-      }
-
-      return [{ role: "ai", text: greeting }, ...previous];
-    });
-  }, [resortName, userName]);
-
-  useEffect(() => {
     endRef.current?.scrollIntoView({
       behavior: "smooth",
     });
@@ -243,97 +224,9 @@ export default function FloatingAI() {
   }, []);
 
   const send = async (text: string) => {
-    const message = text.trim();
-
-    if (!message || typing) {
-      return;
-    }
-
-    setMsgs((previous) => [
-      ...previous,
-      {
-        role: "user",
-        text: message,
-      },
-    ]);
-
+    if (!text.trim() || chat.loading || chat.busy) return;
     setInput("");
-    setTyping(true);
-
-    try {
-      const response = await fetch(AI_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message,
-
-          resortName: resortSettings.resortName,
-
-          resortSettings: {
-            resortName: resortSettings.resortName,
-            description: resortSettings.description,
-            address: resortSettings.address,
-            phone: resortSettings.phone,
-            email: resortSettings.email,
-            checkInTime: resortSettings.checkInTime,
-            checkOutTime: resortSettings.checkOutTime,
-            frontDeskHours: resortSettings.frontDeskHours,
-          },
-        }),
-      });
-
-      const rawText = await response.text();
-
-      let data: {
-        response?: string;
-        message?: string;
-        error?: string;
-        details?: string;
-      };
-
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        throw new Error(
-          `Cunag backend returned an invalid response (HTTP ${response.status}).`,
-        );
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          data.details ||
-            data.error ||
-            `AI request failed with status ${response.status}.`,
-        );
-      }
-
-      const aiResponse =
-        data.response ||
-        data.message ||
-        "I'm sorry, I wasn't able to generate a response.";
-
-      setMsgs((previous) => [
-        ...previous,
-        {
-          role: "ai",
-          text: aiResponse,
-        },
-      ]);
-    } catch (error) {
-      console.error("Cunag AI error:", error);
-
-      setMsgs((previous) => [
-        ...previous,
-        {
-          role: "ai",
-          text: "Sorry, I'm having trouble connecting to Cunag right now. Please try again.",
-        },
-      ]);
-    } finally {
-      setTyping(false);
-    }
+    await chat.send(text, AI_ENDPOINT, { resortName: resortSettings.resortName, resortSettings });
   };
 
   if (location.pathname === "/ai-assistant") {
@@ -390,7 +283,7 @@ export default function FloatingAI() {
 
       {open && (
         <div
-          className="fixed bottom-[calc(10.5rem+env(safe-area-inset-bottom))] right-6 z-50 md:bottom-24 flex w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-3xl border border-border bg-white shadow-2xl sm:w-96 max-h-[min(520px,calc(100dvh-12rem-env(safe-area-inset-bottom)))] md:max-h-[520px] animate-in slide-in-from-bottom-4 fade-in duration-200"
+          className="fixed bottom-[calc(10.5rem+env(safe-area-inset-bottom))] right-4 z-50 md:bottom-24 sm:right-6 flex h-[min(520px,calc(100dvh-12rem-env(safe-area-inset-bottom)))] w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-3xl border border-border bg-white shadow-2xl sm:w-96 md:h-[min(520px,calc(100dvh-7rem))] animate-in slide-in-from-bottom-4 fade-in duration-200"
           style={{
             boxShadow: "0 24px 64px rgba(10,61,98,0.18)",
           }}
@@ -460,7 +353,7 @@ export default function FloatingAI() {
                       : "rounded-tl-sm bg-muted text-foreground"
                   }`}
                 >
-                  {renderMessageContent(message.text)}
+                  {renderMessageContent(message.text, message.role === "ai")}
                 </div>
               </div>
             ))}
@@ -514,12 +407,12 @@ export default function FloatingAI() {
               }}
               placeholder="Ask about rooms, diving, prices…"
               className="flex-1 rounded-xl border border-border px-3 py-2 text-xs focus:ring-2 focus:ring-primary focus:outline-none"
-              disabled={typing}
+              disabled={typing || chat.loading}
             />
 
             <button
               onClick={() => void send(input)}
-              disabled={!input.trim() || typing}
+              disabled={!input.trim() || typing || chat.loading}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent text-white transition-colors hover:bg-accent/90 disabled:opacity-40"
               aria-label="Send message"
             >

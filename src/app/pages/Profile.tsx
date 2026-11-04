@@ -155,18 +155,19 @@ function isCountedAsSpent(booking: Booking): boolean {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { user } = useApp();
+  const { user, authLoading } = useApp();
 
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!user) {
+    if (!authLoading && !user) {
       navigate("/auth", {
         replace: true,
       });
     }
-  }, [user, navigate]);
+  }, [user, authLoading, navigate]);
 
+  if (authLoading) return <p role="status" className="py-12 text-center">Loading your account...</p>;
   if (!user) {
     return null;
   }

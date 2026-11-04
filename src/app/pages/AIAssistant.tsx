@@ -1,3 +1,6 @@
+import { useChat } from "../context/ChatContext";
+import { ChatHistoryControls } from "../components/ChatHistoryControls";
+import { ChatText } from "../components/ChatText";
 import { useState, useRef, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { Bot, Send, User, Sparkles, RefreshCw } from "lucide-react";
@@ -63,15 +66,13 @@ How can I help you today?`,
 
 export default function AIAssistant() {
   const { user } = useApp();
+  const chat = useChat();
 
   const [settings, setSettings] = useState<ResortSettings>(DEFAULT_SETTINGS);
 
-  const [messages, setMessages] = useState<Message[]>([
-    createWelcomeMessage(user?.firstName, DEFAULT_SETTINGS.resortName),
-  ]);
-
+  const messages: Message[] = chat.messages.length ? chat.messages : [createWelcomeMessage(user?.firstName, settings.resortName)];
   const [input, setInput] = useState("");
-  const [typing, setTyping] = useState(false);
+  const typing = chat.busy;
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -126,116 +127,20 @@ export default function AIAssistant() {
   }, []);
 
   useEffect(() => {
-    setMessages((previous) => {
-      if (
-        previous.length === 1 &&
-        previous[0].role === "ai" &&
-        previous[0].suggestions?.length
-      ) {
-        return [createWelcomeMessage(user?.firstName, settings.resortName)];
-      }
-
-      return previous;
-    });
-  }, [user?.firstName, settings.resortName]);
-
-  useEffect(() => {
     chatEndRef.current?.scrollIntoView({
       behavior: "smooth",
     });
   }, [messages, typing]);
 
   const sendMessage = async (text: string) => {
-    const trimmedText = text.trim();
-
-    if (!trimmedText || typing) {
-      return;
-    }
-
-    const userMessage: Message = {
-      role: "user",
-      text: trimmedText,
-      timestamp: getTime(),
-    };
-
-    setMessages((previous) => [...previous, userMessage]);
+    if (!text.trim() || chat.loading || chat.busy) return;
     setInput("");
-    setTyping(true);
-
-    try {
-      const response = await fetch(AI_API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: trimmedText,
-
-          settings: {
-            resortName: settings.resortName,
-            address: settings.address,
-            phone: settings.phone,
-            email: settings.email,
-            website: settings.website,
-          },
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data?.details ||
-            data?.error ||
-            `AI request failed with status ${response.status}`,
-        );
-      }
-
-      const aiText =
-        typeof data?.response === "string"
-          ? data.response
-          : typeof data?.message === "string"
-            ? data.message
-            : "I'm sorry, I couldn't generate a response.";
-
-      const aiMessage: Message = {
-        role: "ai",
-        text: aiText,
-        timestamp: getTime(),
-      };
-
-      setMessages((previous) => [...previous, aiMessage]);
-    } catch (error) {
-      console.error("Cunag AI error:", error);
-
-      let errorMessage =
-        "I'm sorry, I'm having trouble connecting to my AI service right now. Please try again in a moment.";
-
-      if (error instanceof TypeError) {
-        errorMessage =
-          "I couldn't connect to the AI server. Please make sure the AI service is online.";
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-
-      setMessages((previous) => [
-        ...previous,
-        {
-          role: "ai",
-          text: errorMessage,
-          timestamp: getTime(),
-        },
-      ]);
-    } finally {
-      setTyping(false);
-    }
+    await chat.send(text, AI_API_URL, { settings: {
+      resortName: settings.resortName, address: settings.address, phone: settings.phone,
+      email: settings.email, website: settings.website,
+    } });
   };
-
-  const reset = () => {
-    setMessages([createWelcomeMessage(user?.firstName, settings.resortName)]);
-
-    setInput("");
-  };
+  const reset = () => { chat.startNew(); setInput(""); };
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -271,12 +176,15 @@ export default function AIAssistant() {
         <button
           type="button"
           onClick={reset}
+          disabled={chat.loading}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors border border-border px-3 py-1.5 rounded-full hover:bg-muted"
         >
           <RefreshCw className="w-3.5 h-3.5" />
           New Chat
         </button>
       </div>
+
+      <ChatHistoryControls />
 
       <div
         className="bg-white rounded-3xl border border-border shadow-sm overflow-hidden flex flex-col"
@@ -329,7 +237,7 @@ export default function AIAssistant() {
                       : "bg-muted text-foreground rounded-tl-sm"
                   }`}
                 >
-                  {msg.text}
+                  {msg.role === "ai" ? <ChatText text={msg.text} /> : msg.text}
                 </div>
 
                 {msg.suggestions &&
@@ -341,7 +249,7 @@ export default function AIAssistant() {
                           key={suggestion}
                           type="button"
                           onClick={() => sendMessage(suggestion)}
-                          disabled={typing}
+                          disabled={typing || chat.loading}
                           className="px-2.5 py-1 bg-secondary text-primary text-[11px] font-medium rounded-full hover:bg-primary hover:text-white transition-colors border border-secondary disabled:opacity-50"
                         >
                           {suggestion}
@@ -398,13 +306,13 @@ export default function AIAssistant() {
               placeholder="Ask Cunag anything about the resort..."
               aria-label="Message Cunag"
               className="flex-1 min-w-0 px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              disabled={typing}
+              disabled={typing || chat.loading}
             />
 
             <button
               type="button"
               onClick={() => void sendMessage(input)}
-              disabled={!input.trim() || typing}
+              disabled={!input.trim() || typing || chat.loading}
               aria-label="Send message"
               className="w-10 h-10 bg-primary text-white rounded-xl flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50 flex-shrink-0"
             >

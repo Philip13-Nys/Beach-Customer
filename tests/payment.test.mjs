@@ -138,6 +138,8 @@ function paymentHarness(booking, { failCommit = false } = {}) {
     "../context/AppContext": { useApp: () => app },
     "../utils/payment": helpers,
     "../utils/bookingPresentation": bookingPresentation,
+    "../utils/bookingPolicy": compile("../src/app/utils/bookingPolicy.ts", { "./bookingPresentation": bookingPresentation }),
+    "../services/customerBookings": {},
     "lucide-react": {},
     "../components/firebase": { db: {}, customerDb: {} },
     "firebase/firestore": {
@@ -276,6 +278,8 @@ test("booking history preserves pending status and restores payment actions afte
     "../context/AppContext": { useApp: () => ({ user: { id: "customer" } }) },
     "../utils/payment": helpers,
     "../utils/bookingPresentation": bookingPresentation,
+    "../utils/bookingPolicy": compile("../src/app/utils/bookingPolicy.ts", { "./bookingPresentation": bookingPresentation }),
+    "../services/customerBookings": {},
     "lucide-react": {},
     "../components/firebase": {
       auth: { currentUser: { uid: "customer" } },

@@ -18,6 +18,7 @@ import {
   collection,
   addDoc,
   query,
+  where,
   orderBy,
   onSnapshot,
   serverTimestamp,
@@ -81,7 +82,7 @@ const FAQS = [
   },
   {
     q: "What is your cancellation policy?",
-    a: "Free cancellation is available up to 48 hours before check-in. Cancellations within 48 hours are subject to one night's room charge.",
+    a: "Pending and confirmed bookings can be cancelled from Booking History. Checked-in, completed, and already-cancelled bookings cannot be cancelled online. Contact the resort about any refund requests.",
   },
 ];
 
@@ -187,16 +188,15 @@ export default function Inquiries() {
 
     const inquiriesQuery = query(
       collection(customerDb, "Inquiries"),
-      orderBy("createdAt", "desc"),
+      where("userId", "==", user.id),
     );
 
     const unsubscribe = onSnapshot(
       inquiriesQuery,
       (snapshot) => {
         const loaded: Inquiry[] = snapshot.docs
-          .filter((inquiryDoc) => {
-            return inquiryDoc.data().userId === user.id;
-          })
+          .slice()
+          .sort((a, b) => (b.data().createdAt?.toMillis?.() || 0) - (a.data().createdAt?.toMillis?.() || 0))
           .map((inquiryDoc) => {
             const data = inquiryDoc.data();
 

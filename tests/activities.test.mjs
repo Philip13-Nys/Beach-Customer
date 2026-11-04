@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { transformSync } from "esbuild";
+import { hooks, settle } from "./helpers/runtime.mjs";
 
 function compile(path, mocks = {}) {
   const module = { exports: {} };
@@ -131,39 +132,17 @@ test("ratings use only published valid reviews for the same activity type and ID
 });
 
 test("legacy activity reviews resolve through their booking without rewriting historical data", async () => {
-  let next,
-    reads = 0,
-    stopped = false;
-  const state = [],
-    effects = [];
-  let cursor = 0;
+  let reads = 0;
+  const runtime = hooks();
+  const legacy = { id: "old", bookingId: "activity-booking", roomName: "Resort Stay", status: "published", rating: 5 };
+  const publication = { reviews: [legacy], loading: false, error: "" };
   const module = compile("../src/hooks/useActivityReviews.ts", {
-    react: {
-      useEffect: (effect) => effects.push(effect),
-      useState(initial) {
-        const i = cursor++;
-        if (!(i in state)) state[i] = initial;
-        return [
-          state[i],
-          (value) => {
-            state[i] = value;
-          },
-        ];
-      },
-    },
+    react: runtime.api,
+    "./usePublishedReviews": { usePublishedReviews: () => publication },
     "../app/utils/bookingPresentation": helpers,
     "../app/components/firebase": { customerDb: {} },
     "firebase/firestore": {
-      collection: () => ({}),
       doc: (db, collection, id) => id,
-      query: (base) => base,
-      where: () => ({}),
-      onSnapshot: (query, callback) => {
-        next = callback;
-        return () => {
-          stopped = true;
-        };
-      },
       getDoc: async (id) => {
         reads++;
         assert.equal(id, "activity-booking");
@@ -179,19 +158,12 @@ test("legacy activity reviews resolve through their booking without rewriting hi
     },
   });
   function render() {
-    cursor = 0;
-    return module.useActivityReviews();
+    runtime.reset();
+    const value = module.useActivityReviews();
+    runtime.flush();
+    return value;
   }
-  render();
-  const cleanup = effects.shift()();
-  const legacy = {
-    bookingId: "activity-booking",
-    roomName: "Resort Stay",
-    status: "published",
-    rating: 5,
-  };
-  const docs = [{ data: () => legacy }];
-  await next({ docs });
+  render(); await settle();
   let result = render();
   assert.equal(result.loading, false);
   assert.equal(result.error, "");
@@ -204,12 +176,11 @@ test("legacy activity reviews resolve through their booking without rewriting hi
     "Resort Stay",
     "Original record remains untouched",
   );
-  await next({ docs });
+  publication.reviews = [legacy]; render(); await settle();
   assert.equal(reads, 1, "Linked booking is cached");
-  await next({
-    docs: [
+  publication.reviews = [
       {
-        data: () => ({
+          id: "new",
           ...bookingReviewFields({
             itemType: "service",
             itemId: "s1",
@@ -217,16 +188,14 @@ test("legacy activity reviews resolve through their booking without rewriting hi
           }),
           status: "published",
           rating: 4,
-        }),
       },
-    ],
-  });
+    ];
+  render(); await settle();
   assert.equal(reads, 1, "New reviews need no booking lookup");
   result = render();
   assert.equal(
     activityRating({ id: "s1", name: "Night Dive" }, result.reviews).average,
     4,
   );
-  cleanup();
-  assert.equal(stopped, true);
+  runtime.cleanup();
 });

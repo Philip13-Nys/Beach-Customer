@@ -55,6 +55,7 @@ export default function Payment() {
     pendingPayment,
     setPendingPayment,
     user,
+    authLoading,
     createNotification,
   } = useApp();
 
@@ -81,10 +82,10 @@ export default function Payment() {
     : ((pendingPayment as Booking | null) ?? firestoreBooking);
 
   useEffect(() => {
-    if (!user) {
+    if (!authLoading && !user) {
       navigate("/auth");
     }
-  }, [user, navigate]);
+  }, [user, authLoading, navigate]);
 
   useEffect(() => {
     let active = true;
@@ -378,6 +379,7 @@ export default function Payment() {
     }
   };
 
+  if (authLoading) return <p role="status" className="py-12 text-center">Loading your account...</p>;
   if (!user) {
     return null;
   }
