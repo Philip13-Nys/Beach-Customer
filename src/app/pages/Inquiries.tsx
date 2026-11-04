@@ -512,38 +512,6 @@ export default function Inquiries() {
               )}
             </div>
           </div>
-
-          <div className="bg-white rounded-2xl border border-border p-5">
-            <h3
-              className="font-semibold text-foreground text-sm mb-3"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              Resort Location
-            </h3>
-
-            <div className="bg-muted rounded-xl overflow-hidden h-40 flex items-center justify-center text-muted-foreground text-sm">
-              <div className="text-center px-4">
-                <MapPin className="w-8 h-8 mx-auto mb-2 text-primary" />
-
-                <p className="text-sm font-medium text-foreground">
-                  {settings.resortName}
-                </p>
-
-                <p className="text-xs mt-1">{settings.address}</p>
-
-                {normalizedWebsite && (
-                  <a
-                    href={normalizedWebsite}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block mt-2 text-xs text-primary hover:underline"
-                  >
-                    Visit website
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
 
         <div className="lg:col-span-2">
@@ -700,7 +668,11 @@ export default function Inquiries() {
                     disabled={sending}
                     className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {sending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
                     {sending ? "Sending..." : "Send Message"}
                   </button>
                 </form>
@@ -859,7 +831,11 @@ export default function Inquiries() {
                   aria-label={sending ? "Sending message" : "Send message"}
                   aria-busy={sending}
                 >
-                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {sending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>

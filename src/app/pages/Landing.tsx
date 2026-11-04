@@ -1,3 +1,6 @@
+import { useActivityReviews } from "../../hooks/useActivityReviews";
+import { activityRating } from "../utils/bookingPresentation";
+import { ActivityRating } from "../components/ActivityRating";
 import { Link, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
@@ -53,6 +56,7 @@ interface Review {
   guestAvatar?: string;
   roomName?: string;
   serviceName?: string;
+  packageName?: string;
   rating: number;
   comment: string;
   date: string;
@@ -378,6 +382,7 @@ const mapBooking = (
 ): FirestoreBooking => ({ ...data, id }) as FirestoreBooking;
 
 export default function Landing() {
+  const activityReviews = useActivityReviews();
   const navigate = useNavigate();
   const { settings: resortSettings } = useResortSettings();
 
@@ -525,6 +530,10 @@ export default function Landing() {
                 serviceName:
                   typeof data.serviceName === "string"
                     ? data.serviceName
+                    : undefined,
+                packageName:
+                  typeof data.packageName === "string"
+                    ? data.packageName
                     : undefined,
                 rating: Number(data.rating ?? 0),
                 comment: String(data.comment ?? ""),
@@ -1260,6 +1269,14 @@ export default function Landing() {
                   >
                     {service.name}
                   </h3>
+                  <div className="mt-1.5">
+                    <ActivityRating
+                      {...activityRating(service, activityReviews.reviews)}
+                      loading={activityReviews.loading}
+                      error={activityReviews.error}
+                      light
+                    />
+                  </div>
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-accent font-semibold text-sm">
                       ₱{Number(service.price || 0).toLocaleString()}
@@ -1361,6 +1378,7 @@ export default function Landing() {
                       <div className="text-white/50 text-xs">
                         {review.roomName ||
                           review.serviceName ||
+                          review.packageName ||
                           "Resort guest"}
                       </div>
                     </div>

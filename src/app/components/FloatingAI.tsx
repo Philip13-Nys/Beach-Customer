@@ -342,7 +342,7 @@ export default function FloatingAI() {
 
   return (
     <>
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+      <div className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-6 z-50 md:bottom-6 flex flex-col items-end gap-3">
         {nudge && !open && (
           <div className="relative max-w-[220px] rounded-2xl border border-border bg-white px-4 py-3 shadow-xl animate-in slide-in-from-bottom-2 fade-in duration-300">
             <p className="text-xs font-medium leading-snug text-foreground">
@@ -390,9 +390,8 @@ export default function FloatingAI() {
 
       {open && (
         <div
-          className="fixed bottom-24 right-6 z-50 flex w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-3xl border border-border bg-white shadow-2xl sm:w-96 animate-in slide-in-from-bottom-4 fade-in duration-200"
+          className="fixed bottom-[calc(10.5rem+env(safe-area-inset-bottom))] right-6 z-50 md:bottom-24 flex w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-3xl border border-border bg-white shadow-2xl sm:w-96 max-h-[min(520px,calc(100dvh-12rem-env(safe-area-inset-bottom)))] md:max-h-[520px] animate-in slide-in-from-bottom-4 fade-in duration-200"
           style={{
-            maxHeight: "520px",
             boxShadow: "0 24px 64px rgba(10,61,98,0.18)",
           }}
         >

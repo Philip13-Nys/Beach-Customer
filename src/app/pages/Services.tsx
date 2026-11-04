@@ -1,3 +1,6 @@
+import { useActivityReviews } from "../../hooks/useActivityReviews";
+import { activityRating } from "../utils/bookingPresentation";
+import { ActivityRating } from "../components/ActivityRating";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
@@ -12,7 +15,6 @@ import {
 import {
   Clock,
   Users,
-  Star,
   ChevronRight,
   X,
   Calendar,
@@ -153,6 +155,7 @@ function mapActivity(
 
 export default function Services() {
   const bookingAction = useAsyncAction();
+  const activityReviews = useActivityReviews();
 
   const [cat, setCat] = useState<Category>("All");
   const [selected, setSelected] = useState<ActivityItem | null>(null);
@@ -299,6 +302,7 @@ export default function Services() {
         itemType: selected.itemType,
         itemId: selected.id,
         itemName: selected.name,
+        itemImage: selected.image || "",
         serviceId: selected.itemType === "service" ? selected.id : null,
         packageId: selected.itemType === "package" ? selected.id : null,
         serviceName: selected.itemType === "service" ? selected.name : null,
@@ -414,6 +418,14 @@ export default function Services() {
           {item.name}
         </h3>
 
+        <div className="mb-3">
+          <ActivityRating
+            {...activityRating(item, activityReviews.reviews)}
+            loading={activityReviews.loading}
+            error={activityReviews.error}
+          />
+        </div>
+
         <p className="text-muted-foreground text-xs leading-relaxed mb-3 line-clamp-2">
           {item.description || "Discover this resort experience."}
         </p>
@@ -427,11 +439,6 @@ export default function Services() {
           <span className="flex items-center gap-1">
             <Users className="w-3.5 h-3.5" />
             Max {item.maxParticipants}
-          </span>
-
-          <span className="flex items-center gap-1">
-            <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
-            4.8
           </span>
         </div>
 
@@ -806,7 +813,9 @@ export default function Services() {
                     }
                     className="flex-1 bg-accent text-white py-2.5 rounded-xl text-sm font-medium hover:bg-accent/90 disabled:opacity-50"
                   >
-                    {bookingAction.pending ? "Submitting Booking..." : "Confirm Booking"}
+                    {bookingAction.pending
+                      ? "Submitting Booking..."
+                      : "Confirm Booking"}
                   </button>
                 </div>
               </div>

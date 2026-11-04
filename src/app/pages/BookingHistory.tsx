@@ -1,3 +1,9 @@
+import {
+  bookingKind,
+  bookingName,
+  bookingStatusLabel,
+  bookingReviewFields,
+} from "../utils/bookingPresentation";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { Link, Navigate, useLocation } from "react-router";
 import { Booking, useApp } from "../context/AppContext";
@@ -35,6 +41,18 @@ type BookingWithPayment = Booking & {
   bookingRef?: string;
   roomImage?: string;
   roomName?: string;
+  bookingType?: string;
+  itemType?: string;
+  itemId?: string;
+  itemName?: string;
+  serviceId?: string;
+  serviceName?: string;
+  packageId?: string;
+  packageName?: string;
+  itemImage?: string;
+  bookingDate?: string;
+  bookingTime?: string;
+  participants?: number;
   roomRate?: number;
   checkIn: string;
   checkOut: string;
@@ -52,7 +70,23 @@ const normalizeStatus = (status?: string) =>
   (status || "").toLowerCase().trim();
 
 const isReviewEligible = (status?: string) =>
-  ["completed", "checked-out", "checked out"].includes(normalizeStatus(status));
+  ["completed", "checkedout", "finished"].includes(
+    normalizeStatus(status).replace(/[\s_-]/g, ""),
+  );
+
+function bookingCreatedTime(value: any): number {
+  const time =
+    typeof value?.toMillis === "function"
+      ? value.toMillis()
+      : value instanceof Date
+        ? value.getTime()
+        : value && typeof value === "object" && "seconds" in value
+          ? Number(value.seconds) * 1000 + Number(value.nanoseconds || 0) / 1e6
+          : typeof value === "string" || typeof value === "number"
+            ? new Date(value).getTime()
+            : 0;
+  return Number.isFinite(time) ? time : 0;
+}
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useApp();
@@ -150,8 +184,10 @@ function BookingHistoryContent() {
   const filtered =
     filter === "all"
       ? bookings
-      : bookings.filter(
-          (booking) => normalizeStatus(booking.status) === filter,
+      : bookings.filter((booking) =>
+          filter === "completed"
+            ? isReviewEligible(booking.status)
+            : normalizeStatus(booking.status) === filter,
         );
 
   useEffect(() => {
@@ -184,7 +220,7 @@ function BookingHistoryContent() {
 
         const bookingList: BookingWithPayment[] = snapshot.docs.map(
           (bookingDoc) => {
-            const data = bookingDoc.data();
+            const data = bookingDoc.data({ serverTimestamps: "estimate" });
 
             const totalPrice = Number(
               data.totalPrice ?? data.totalAmount ?? data.total ?? 0,
@@ -194,7 +230,9 @@ function BookingHistoryContent() {
             const remainingBalance = Math.max(0, totalPrice - amountPaid);
 
             const { paymentStatus } = getPaymentSummary({
-              totalPrice, amountPaid, paymentStatus: data.paymentStatus,
+              totalPrice,
+              amountPaid,
+              paymentStatus: data.paymentStatus,
             });
 
             return {
@@ -211,8 +249,12 @@ function BookingHistoryContent() {
           },
         );
 
+        bookingList.sort(
+          (a, b) =>
+            bookingCreatedTime(b.createdAt) - bookingCreatedTime(a.createdAt) ||
+            a.id.localeCompare(b.id),
+        );
         setBookings(bookingList);
-
       },
       (error) => {
         console.error("Booking listener error:", error);
@@ -319,7 +361,9 @@ function BookingHistoryContent() {
     const remainingBalance = Math.max(0, totalPrice - amountPaid);
 
     const { paymentStatus } = getPaymentSummary({
-      totalPrice, amountPaid, paymentStatus: modifyTarget.paymentStatus,
+      totalPrice,
+      amountPaid,
+      paymentStatus: modifyTarget.paymentStatus,
     });
 
     setModifyError("");
@@ -455,7 +499,7 @@ function BookingHistoryContent() {
         userId: currentUser.uid,
         guestName,
         guestAvatar: currentUser.photoURL || "",
-        roomName: target.roomName || "Resort Stay",
+        ...bookingReviewFields(target),
         rating: reviewRating,
         comment,
         date: new Date().toISOString().slice(0, 10),
@@ -487,6 +531,8 @@ function BookingHistoryContent() {
     pending: "bg-yellow-100 text-yellow-700",
     cancelled: "bg-red-100 text-red-600",
     completed: "bg-blue-100 text-blue-700",
+    "checked-in": "bg-indigo-100 text-indigo-700",
+    "checked in": "bg-indigo-100 text-indigo-700",
     "checked-out": "bg-blue-100 text-blue-700",
     "checked out": "bg-blue-100 text-blue-700",
   };
@@ -638,6 +684,7 @@ function BookingHistoryContent() {
             const remainingBalance = Math.max(0, totalPrice - amountPaid);
             const hasReviewed = reviewedBookingIds.includes(booking.id);
             const normalizedStatus = normalizeStatus(booking.status);
+            const isActivity = bookingKind(booking) !== "room";
 
             const { paymentStatus } = getPaymentSummary(booking);
 
@@ -650,10 +697,11 @@ function BookingHistoryContent() {
                   <div className="sm:w-44 h-36 sm:h-auto flex-shrink-0">
                     <img
                       src={
+                        booking.itemImage ||
                         booking.roomImage ||
                         "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800"
                       }
-                      alt={booking.roomName || "Booked room"}
+                      alt={bookingName(booking)}
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -668,7 +716,7 @@ function BookingHistoryContent() {
                             fontSize: "1.1rem",
                           }}
                         >
-                          {booking.roomName || "Resort Stay"}
+                          {bookingName(booking)}
                         </h2>
 
                         <p
@@ -686,10 +734,7 @@ function BookingHistoryContent() {
                             "bg-gray-100 text-gray-700"
                           }`}
                         >
-                          {booking.status
-                            ? booking.status.charAt(0).toUpperCase() +
-                              booking.status.slice(1)
-                            : "Unknown"}
+                          {bookingStatusLabel(booking)}
                         </span>
 
                         <span
@@ -713,13 +758,16 @@ function BookingHistoryContent() {
                     <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-3">
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5" />
-                        {booking.checkIn || "—"} – {booking.checkOut || "—"}
+                        {isActivity
+                          ? `${booking.bookingDate || booking.checkIn || "—"}${booking.bookingTime ? ` · ${booking.bookingTime}` : ""}`
+                          : `${booking.checkIn || "—"} – ${booking.checkOut || "—"}`}
                       </span>
 
                       <span className="flex items-center gap-1">
                         <Users className="w-3.5 h-3.5" />
-                        {booking.guests ?? 0} guests · {booking.nights ?? 0}{" "}
-                        nights
+                        {isActivity
+                          ? `${booking.participants ?? booking.guests ?? 0} participants`
+                          : `${booking.guests ?? 0} guests · ${booking.nights ?? 0} nights`}
                       </span>
 
                       <span className="flex items-center gap-1">
@@ -1069,7 +1117,7 @@ function BookingHistoryContent() {
                     </h2>
 
                     <p className="text-sm text-muted-foreground mt-1">
-                      {reviewTarget.roomName || "Resort Stay"} ·{" "}
+                      {bookingName(reviewTarget)} ·{" "}
                       {reviewTarget.bookingRef || reviewTarget.id}
                     </p>
                   </div>

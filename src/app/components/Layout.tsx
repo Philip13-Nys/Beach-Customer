@@ -7,8 +7,6 @@ import { useResortSettings } from "../../hooks/useResortSettings";
 
 import {
   Waves,
-  Menu,
-  X,
   Bell,
   User,
   LogOut,
@@ -16,9 +14,7 @@ import {
   Anchor,
   Home,
   Bed,
-  Calendar,
   Clock,
-  CreditCard,
   MessageCircle,
   Star,
   Bot,
@@ -34,10 +30,12 @@ const navLinks = [
 
 const authNavLinks = [{ label: "My Bookings", href: "/booking-history" }];
 
-const guestLinks = [
-  { label: "My Bookings", href: "/bookings", icon: Calendar },
+const mobileNavLinks = [
+  ...navLinks,
   { label: "Booking History", href: "/booking-history", icon: Clock },
-  { label: "Payments", href: "/payment", icon: CreditCard },
+];
+
+const guestLinks = [
   { label: "Reviews", href: "/reviews", icon: Star },
   { label: "AI Assistant", href: "/ai-assistant", icon: Bot },
   { label: "Contact / Chat", href: "/inquiries", icon: MessageCircle },
@@ -65,7 +63,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const { settings: resortSettings } = useResortSettings();
 
-  const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationActionError, setNotificationActionError] = useState("");
@@ -86,7 +83,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       await logout();
     } finally {
       setUserMenuOpen(false);
-      setMenuOpen(false);
       setNotificationsOpen(false);
       navigate("/");
     }
@@ -132,7 +128,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       }
     } catch (error) {
       console.error("Unable to mark notification as read:", error);
-      setNotificationActionError("The notification could not be marked as read. Please try again.");
+      setNotificationActionError(
+        "The notification could not be marked as read. Please try again.",
+      );
     } finally {
       setNotificationsOpen(false);
     }
@@ -148,7 +146,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       await markAllRead();
     } catch (error) {
       console.error("Unable to mark all notifications as read:", error);
-      setNotificationActionError("Notifications could not be marked as read. Please try again.");
+      setNotificationActionError(
+        "Notifications could not be marked as read. Please try again.",
+      );
     }
   };
 
@@ -158,30 +158,32 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className="min-h-screen flex flex-col"
+      className="min-h-screen flex flex-col pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0"
       style={{ fontFamily: "var(--font-body)" }}
     >
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between min-h-16 py-2">
-            <Link to="/" className="flex items-center gap-2 group min-w-0">
-              <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                <Anchor className="w-5 h-5 text-white" />
-              </div>
-
-              <div className="min-w-0">
-                <div
-                  className="text-xs sm:text-sm font-semibold text-primary leading-tight truncate max-w-[150px] sm:max-w-none"
-                  style={{ fontFamily: "var(--font-display)" }}
-                >
-                  {resortName}
+          <div className="flex items-center justify-between gap-2 md:gap-0 min-h-16 py-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Link to="/" className="flex items-center gap-2 group min-w-0">
+                <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                  <Anchor className="w-5 h-5 text-white" />
                 </div>
 
-                <div className="hidden sm:block text-[10px] text-muted-foreground leading-none tracking-wide uppercase">
-                  Beach &amp; Diving Resort
+                <div className="min-w-0">
+                  <div
+                    className="text-xs sm:text-sm font-semibold text-primary leading-tight truncate max-w-[150px] sm:max-w-none"
+                    style={{ fontFamily: "var(--font-display)" }}
+                  >
+                    {resortName}
+                  </div>
+
+                  <div className="hidden sm:block text-[10px] text-muted-foreground leading-none tracking-wide uppercase">
+                    Beach &amp; Diving Resort
+                  </div>
                 </div>
-              </div>
-            </Link>
+              </Link>
+            </div>
 
             <nav className="hidden md:flex items-center gap-6">
               {navLinks.map((link) => (
@@ -265,10 +267,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             </h3>
 
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {notificationsLoading ? "Loading updates..." :
-                                notificationsError || notificationActionError ? "Some updates are unavailable" : unreadCount > 0
-                                ? `${unreadCount} unread`
-                                : "You're all caught up"}
+                              {notificationsLoading
+                                ? "Loading updates..."
+                                : notificationsError || notificationActionError
+                                  ? "Some updates are unavailable"
+                                  : unreadCount > 0
+                                    ? `${unreadCount} unread`
+                                    : "You're all caught up"}
                             </p>
                           </div>
 
@@ -281,14 +286,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                               className="self-start sm:self-auto text-xs font-medium text-primary hover:text-primary/70 flex items-center gap-1 whitespace-nowrap transition-colors"
                             >
                               <CheckCheck className="w-4 h-4 flex-shrink-0" />
-                              {markAllAction.pending ? "Updating..." : "Mark all read"}
+                              {markAllAction.pending
+                                ? "Updating..."
+                                : "Mark all read"}
                             </button>
                           )}
                         </div>
 
                         {(notificationsError || notificationActionError) && (
-                          <div role="alert" className="border-b border-border bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                            <p>{notificationsError || notificationActionError}</p>
+                          <div
+                            role="alert"
+                            className="border-b border-border bg-amber-50 px-4 py-3 text-xs text-amber-800"
+                          >
+                            <p>
+                              {notificationsError || notificationActionError}
+                            </p>
                             <button
                               type="button"
                               disabled={notificationsLoading}
@@ -298,19 +310,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                               }}
                               className="mt-2 font-semibold underline disabled:opacity-50"
                             >
-                              {notificationsLoading ? "Retrying..." : "Retry updates"}
+                              {notificationsLoading
+                                ? "Retrying..."
+                                : "Retry updates"}
                             </button>
                           </div>
                         )}
 
                         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain max-h-[calc(100dvh-12rem)] md:max-h-none">
-                          {notificationsLoading && notifications.length === 0 ? (
-                            <p role="status" className="px-5 py-10 text-center text-sm text-muted-foreground">
+                          {notificationsLoading &&
+                          notifications.length === 0 ? (
+                            <p
+                              role="status"
+                              className="px-5 py-10 text-center text-sm text-muted-foreground"
+                            >
                               Loading notifications...
                             </p>
-                          ) : (notificationsError || notificationActionError) && notifications.length === 0 ? (
+                          ) : (notificationsError || notificationActionError) &&
+                            notifications.length === 0 ? (
                             <p className="px-5 py-6 text-center text-xs text-muted-foreground">
-                              Your updates will appear here when the connection is restored.
+                              Your updates will appear here when the connection
+                              is restored.
                             </p>
                           ) : !notifications || notifications.length === 0 ? (
                             <div className="px-5 py-10 text-center">
@@ -453,7 +473,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             className="flex items-center gap-3 px-4 py-2 text-sm text-destructive hover:bg-red-50 w-full transition-colors"
                           >
                             <LogOut className="w-4 h-4" />
-                            {logoutAction.pending ? "Signing out..." : "Sign Out"}
+                            {logoutAction.pending
+                              ? "Signing out..."
+                              : "Sign Out"}
                           </button>
                         </div>
                       </div>
@@ -478,72 +500,44 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   </Link>
                 </div>
               )}
-
-              <button
-                type="button"
-                aria-label={menuOpen ? "Close menu" : "Open menu"}
-                aria-expanded={menuOpen}
-                className="md:hidden p-2 rounded-full hover:bg-muted transition-colors flex-shrink-0"
-                onClick={() => setMenuOpen((open) => !open)}
-              >
-                {menuOpen ? (
-                  <X className="w-5 h-5" />
-                ) : (
-                  <Menu className="w-5 h-5" />
-                )}
-              </button>
             </div>
           </div>
         </div>
-
-        {menuOpen && (
-          <div className="md:hidden border-t border-border bg-white py-4 max-h-[calc(100vh-4rem)] overflow-y-auto">
-            <div className="max-w-7xl mx-auto px-4 space-y-1">
-              {navLinks.map((link) => (
-                <Link
-                  key={link.href}
-                  to={link.href}
-                  onClick={() => setMenuOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    isActive(link.href)
-                      ? "bg-secondary text-primary"
-                      : "text-foreground hover:bg-muted"
-                  }`}
-                >
-                  <link.icon className="w-4 h-4" />
-                  {link.label}
-                </Link>
-              ))}
-
-              {user &&
-                guestLinks.map((link) => (
-                  <Link
-                    key={link.href}
-                    to={link.href}
-                    onClick={() => setMenuOpen(false)}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors"
-                  >
-                    <link.icon className="w-4 h-4" />
-                    {link.label}
-                  </Link>
-                ))}
-
-              {!user && (
-                <Link
-                  to="/auth"
-                  onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-primary hover:bg-muted transition-colors"
-                >
-                  <User className="w-4 h-4" />
-                  Sign In / Register
-                </Link>
-              )}
-            </div>
-          </div>
-        )}
       </header>
 
       <main className="flex-1">{children}</main>
+
+      <nav
+        aria-label="Mobile navigation"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(0,0,0,0.05)] backdrop-blur-sm md:hidden"
+      >
+        <div className="mx-auto grid h-[4.5rem] max-w-lg grid-cols-4">
+          {mobileNavLinks.map((link) => (
+            <Link
+              key={link.href}
+              to={link.href}
+              aria-current={isActive(link.href) ? "page" : undefined}
+              onClick={() => {
+                setUserMenuOpen(false);
+                setNotificationsOpen(false);
+              }}
+              className={
+                "flex min-w-0 flex-col items-center justify-center gap-1 px-2 py-2 text-center text-[11px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary " +
+                (isActive(link.href)
+                  ? "bg-secondary text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-primary")
+              }
+            >
+              <link.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+              <span className="flex min-h-7 items-center justify-center leading-tight">
+                {link.href === "/services"
+                  ? "Activities & Packages"
+                  : link.label}
+              </span>
+            </Link>
+          ))}
+        </div>
+      </nav>
 
       <FloatingAI />
 

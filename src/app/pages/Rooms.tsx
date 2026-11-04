@@ -7,6 +7,7 @@ import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 type RoomType = {
   id: string;
   name: string;
+  description: string;
   count: number;
   availableCount?: number;
   amenities: string[];
@@ -258,6 +259,10 @@ export default function Rooms() {
           return {
             id: roomDoc.id,
             name: String(data.name || ""),
+            description:
+              typeof data.description === "string"
+                ? data.description.trim()
+                : "",
             count: Math.max(
               0,
               Number(data.count ?? data.quantity ?? data.totalRooms ?? 0),
@@ -741,8 +746,9 @@ function RoomCard({
           </span>
         </div>
 
-        <p className="text-muted-foreground text-xs leading-relaxed mb-4">
-          Comfortable accommodation for up to {room.maxGuests} guests.
+        <p className="text-muted-foreground text-xs leading-relaxed whitespace-pre-line break-words mb-4">
+          {room.description ||
+            `Comfortable accommodation for up to ${room.maxGuests} guests.`}
         </p>
 
         <div className="flex flex-wrap gap-1.5 mb-4">

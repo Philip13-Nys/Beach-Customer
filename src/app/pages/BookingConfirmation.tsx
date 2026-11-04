@@ -1,3 +1,8 @@
+import {
+  bookingKind,
+  bookingName,
+  bookingStatusLabel,
+} from "../utils/bookingPresentation";
 import { useParams, Link, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -24,6 +29,10 @@ type Booking = {
   nights?: number;
   guests?: number;
   roomName?: string;
+  itemImage?: string;
+  bookingDate?: string;
+  bookingTime?: string;
+  participants?: number;
   roomImage?: string;
   checkIn?: string;
   checkOut?: string;
@@ -124,6 +133,7 @@ export default function BookingConfirmation() {
   const guests = Number(booking.guests ?? 0);
   const paymentStatus = booking.paymentStatus ?? "unpaid";
   const bookingStatus = booking.status ?? "pending";
+  const isActivity = bookingKind(booking) !== "room";
 
   return (
     <div className="print-area max-w-2xl mx-auto px-4 py-12">
@@ -163,10 +173,10 @@ export default function BookingConfirmation() {
 
       <div className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm mb-6">
         <div className="flex items-center gap-4 p-5 border-b border-border">
-          {booking.roomImage ? (
+          {booking.itemImage || booking.roomImage ? (
             <img
-              src={booking.roomImage}
-              alt={booking.roomName ?? "Booked room"}
+              src={booking.itemImage || booking.roomImage}
+              alt={bookingName(booking)}
               className="w-20 h-16 rounded-xl object-cover flex-shrink-0"
             />
           ) : (
@@ -178,7 +188,7 @@ export default function BookingConfirmation() {
               className="font-semibold text-foreground"
               style={{ fontFamily: "var(--font-display)" }}
             >
-              {booking.roomName ?? "Room Booking"}
+              {bookingName(booking)}
             </h2>
 
             <div className="flex flex-wrap items-center gap-1.5 mt-1">
@@ -191,7 +201,7 @@ export default function BookingConfirmation() {
                       : "bg-gray-100 text-gray-600"
                 }`}
               >
-                {formatStatus(bookingStatus)}
+                {bookingStatusLabel(booking)}
               </span>
 
               <span
@@ -215,37 +225,56 @@ export default function BookingConfirmation() {
           <div className="flex items-start gap-2">
             <Calendar className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
             <div>
-              <div className="text-xs text-muted-foreground">Check-in</div>
-              <div className="text-sm font-semibold text-foreground">
-                {booking.checkIn ?? "—"}
+              <div className="text-xs text-muted-foreground">
+                {isActivity ? "Activity Date" : "Check-in"}
               </div>
-              <div className="text-xs text-muted-foreground">From 2:00 PM</div>
+              <div className="text-sm font-semibold text-foreground">
+                {(isActivity
+                  ? booking.bookingDate || booking.checkIn
+                  : booking.checkIn) ?? "—"}
+              </div>
+              {!isActivity && (
+                <div className="text-xs text-muted-foreground">
+                  From 2:00 PM
+                </div>
+              )}
             </div>
           </div>
 
           <div className="flex items-start gap-2">
             <Calendar className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
             <div>
-              <div className="text-xs text-muted-foreground">Check-out</div>
-              <div className="text-sm font-semibold text-foreground">
-                {booking.checkOut ?? "—"}
-              </div>
               <div className="text-xs text-muted-foreground">
-                Until 12:00 PM
+                {isActivity ? "Scheduled Time" : "Check-out"}
               </div>
+              <div className="text-sm font-semibold text-foreground">
+                {(isActivity ? booking.bookingTime : booking.checkOut) ?? "—"}
+              </div>
+              {!isActivity && (
+                <div className="text-xs text-muted-foreground">
+                  Until 12:00 PM
+                </div>
+              )}
             </div>
           </div>
 
           <div className="flex items-start gap-2">
             <Users className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
             <div>
-              <div className="text-xs text-muted-foreground">Guests</div>
-              <div className="text-sm font-semibold text-foreground">
-                {guests} guest{guests === 1 ? "" : "s"}
-              </div>
               <div className="text-xs text-muted-foreground">
-                {nights} night{nights === 1 ? "" : "s"}
+                {isActivity ? "Participants" : "Guests"}
               </div>
+              <div className="text-sm font-semibold text-foreground">
+                {isActivity ? (booking.participants ?? guests) : guests}{" "}
+                {isActivity
+                  ? "participants"
+                  : `guest${guests === 1 ? "" : "s"}`}
+              </div>
+              {!isActivity && (
+                <div className="text-xs text-muted-foreground">
+                  {nights} night{nights === 1 ? "" : "s"}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -258,9 +287,17 @@ export default function BookingConfirmation() {
 
             <div className="flex justify-between gap-3 text-sm">
               <span className="text-muted-foreground">
-                Room ({nights} night{nights === 1 ? "" : "s"})
+                {isActivity
+                  ? bookingName(booking)
+                  : `Room (${nights} night${nights === 1 ? "" : "s"})`}
               </span>
-              <span>{formatPeso(Number(booking.roomRate ?? 0) * nights)}</span>
+              <span>
+                {formatPeso(
+                  isActivity
+                    ? subtotal
+                    : Number(booking.roomRate ?? 0) * nights,
+                )}
+              </span>
             </div>
 
             {Array.isArray(booking.addOns) &&
