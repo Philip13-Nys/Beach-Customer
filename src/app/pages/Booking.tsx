@@ -1,6 +1,7 @@
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
+import { addDays, format, isValid, parseISO } from "date-fns";
 import { useApp } from "../context/AppContext";
 import {
   ArrowLeft,
@@ -38,19 +39,41 @@ type SelectedAddOn = {
   services: string[];
 };
 
+function isCalendarDate(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && isValid(parseISO(value));
+}
+
+function nextCalendarDay(date: string) {
+  return format(addDays(parseISO(date), 1), "yyyy-MM-dd");
+}
+
 export default function BookingPage() {
   const bookingAction = useAsyncAction();
 
   const { id } = useParams();
-  const { user, createNotification } = useApp();
+  const { user, authLoading, createNotification } = useApp();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const previousStay = location.state as { checkIn?: string; checkOut?: string; guests?: number } | null;
 
-  const today = new Date().toISOString().split("T")[0];
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+  const today = format(new Date(), "yyyy-MM-dd");
+  const requestedCheckIn = searchParams.get("checkIn") || previousStay?.checkIn;
+  const requestedCheckOut = searchParams.get("checkOut") || previousStay?.checkOut;
+  const requestedGuests = Number(searchParams.get("guests") || previousStay?.guests);
+  const initialCheckIn = isCalendarDate(requestedCheckIn) && requestedCheckIn >= today
+    ? requestedCheckIn
+    : today;
 
-  const [checkIn, setCheckIn] = useState(today);
-  const [checkOut, setCheckOut] = useState(tomorrow);
-  const [guests, setGuests] = useState(2);
+  const [checkIn, setCheckIn] = useState(initialCheckIn);
+  const [checkOut, setCheckOut] = useState(() =>
+    initialCheckIn === requestedCheckIn && isCalendarDate(requestedCheckOut) && requestedCheckOut > initialCheckIn
+      ? requestedCheckOut
+      : nextCalendarDay(initialCheckIn),
+  );
+  const [guests, setGuests] = useState(
+    Number.isSafeInteger(requestedGuests) && requestedGuests > 0 ? requestedGuests : 2,
+  );
   const [specialRequests, setSpecialRequests] = useState("");
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
   const [step, setStep] = useState<"form" | "confirm">("form");
@@ -346,11 +369,15 @@ export default function BookingPage() {
     void checkRoomAvailability();
   }, [room, checkIn, checkOut]);
 
+  const stayQuery = new URLSearchParams({ checkIn, checkOut, guests: String(guests) }).toString();
   useEffect(() => {
-    if (!loadingRoom && !user) {
-      navigate("/auth", { replace: true });
+    if (!loadingRoom && !authLoading && !user) {
+      navigate("/auth", {
+        replace: true,
+        state: { returnTo: `${location.pathname}?${stayQuery}` },
+      });
     }
-  }, [user, loadingRoom, navigate]);
+  }, [user, authLoading, loadingRoom, navigate, location.pathname, stayQuery]);
 
   if (loadingRoom) {
     return (
@@ -710,7 +737,7 @@ export default function BookingPage() {
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <Link
-        to={`/rooms/${room.id}`}
+        to={`/rooms/${room.id}?${stayQuery}`}
         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary mb-6 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
@@ -756,10 +783,8 @@ export default function BookingPage() {
                     const newCheckIn = e.target.value;
                     setCheckIn(newCheckIn);
 
-                    if (newCheckIn >= checkOut) {
-                      const nextDay = new Date(`${newCheckIn}T00:00:00`);
-                      nextDay.setDate(nextDay.getDate() + 1);
-                      setCheckOut(nextDay.toISOString().split("T")[0]);
+                    if (isCalendarDate(newCheckIn) && newCheckIn >= checkOut) {
+                      setCheckOut(nextCalendarDay(newCheckIn));
                     }
                   }}
                   className={inputClass}

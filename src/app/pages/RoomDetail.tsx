@@ -218,15 +218,13 @@ export default function RoomDetail() {
     };
   }, []);
 
-  // Preserve dates, guest count, and availability filters when returning
-  // to the room list.
+  const stayParams = new URLSearchParams({ guests: String(guests) });
+  if (checkIn) stayParams.set("checkIn", checkIn);
+  if (checkOut) stayParams.set("checkOut", checkOut);
+
+  // Keep availability filters when returning to the room list.
   const buildRoomsUrl = () => {
-    const params = new URLSearchParams();
-
-    if (checkIn) params.set("checkIn", checkIn);
-    if (checkOut) params.set("checkOut", checkOut);
-
-    params.set("guests", String(guests));
+    const params = new URLSearchParams(stayParams);
 
     const availableRoomTypes = searchParams.get("availableRoomTypes");
 
@@ -426,20 +424,16 @@ export default function RoomDetail() {
 
                 <button
                   onClick={() => {
+                    const bookingUrl = `/booking/${room.id}?${stayParams}`;
                     if (!user) {
                       navigate("/auth", {
-                        state: {
-                          ...bookingState,
-                          returnTo: `/booking/${room.id}`,
-                        },
+                        state: { returnTo: bookingUrl },
                       });
 
                       return;
                     }
 
-                    navigate(`/booking/${room.id}`, {
-                      state: bookingState,
-                    });
+                    navigate(bookingUrl);
                   }}
                   className="w-full bg-accent hover:bg-accent/90 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm"
                 >
