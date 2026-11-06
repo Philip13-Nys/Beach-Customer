@@ -5,6 +5,7 @@ import { sendPasswordResetEmail } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../components/firebase";
 import TermsModal from "../components/TermsModal";
+import PrivacyPolicyDialog from "../components/PrivacyPolicyDialog";
 import {
   Eye,
   EyeOff,
@@ -17,6 +18,9 @@ import TurnstileWidget from "../components/TurnstileWidget";
 import { verifyTurnstile } from "../components/verifyTurnstile";
 
 const DEFAULT_RESORT_NAME = "Sabang Beach and Diving Resort";
+const PASSWORD_POLICY_HINT =
+  "Use a minimum of 8 characters, including an uppercase letter, a number, and a special character.";
+const FIREBASE_PASSWORD_SYMBOLS = "^$*.[]{}()?\"!@#%&/\\,><':;|_~";
 
 export default function Auth() {
   const { user, authLoading, login, register, googleLogin, googleRegister } = useApp();
@@ -346,7 +350,7 @@ export default function Auth() {
 
     if (!form.termsAccepted) {
       setRegisterError(
-        "Please agree to the Terms of Service and Privacy Policy to create an account.",
+        "Please agree to the Terms of Service and acknowledge the Privacy Policy to create an account.",
       );
       return;
     }
@@ -356,9 +360,12 @@ export default function Auth() {
       return;
     }
 
-    if (!/[A-Za-z]/.test(form.password) || !/[0-9]/.test(form.password)) {
+    const hasSpecialCharacter = Array.from(form.password).some((character) =>
+      FIREBASE_PASSWORD_SYMBOLS.includes(character),
+    );
+    if (!/[A-Z]/.test(form.password) || !/[0-9]/.test(form.password) || !hasSpecialCharacter) {
       setRegisterError(
-        "Password must contain at least one letter and one number.",
+        "Password must include an uppercase letter, a number, and a special character such as ! or @.",
       );
       return;
     }
@@ -762,7 +769,7 @@ export default function Auth() {
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-medium text-foreground">
+                    <label htmlFor="sign-in-password" className="block text-xs font-medium text-foreground">
                       Password
                     </label>
 
@@ -785,6 +792,7 @@ export default function Auth() {
 
                   <div className="relative">
                     <input
+                      id="sign-in-password"
                       type={showLoginPwd ? "text" : "password"}
                       placeholder="••••••••"
                       value={loginPassword}
@@ -997,12 +1005,14 @@ export default function Auth() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1.5">
+                <label htmlFor="sign-up-password" className="block text-xs font-medium text-foreground mb-1.5">
                   Password *
                 </label>
 
                 <div className="relative">
                   <input
+                    id="sign-up-password"
+                    aria-describedby="sign-up-password-policy"
                     type={showPwd ? "text" : "password"}
                     placeholder="Min. 8 characters"
                     value={form.password}
@@ -1030,6 +1040,9 @@ export default function Auth() {
                     )}
                   </button>
                 </div>
+                <p id="sign-up-password-policy" className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  {PASSWORD_POLICY_HINT}
+                </p>
               </div>
 
               <div>
@@ -1074,6 +1087,7 @@ export default function Auth() {
                 <input
                   id="termsAccepted"
                   type="checkbox"
+                  aria-labelledby="sign-up-consent"
                   checked={form.termsAccepted}
                   onChange={(e) => {
                     setForm((f) => ({
@@ -1085,27 +1099,25 @@ export default function Auth() {
                       setRegisterError("");
                     }
                   }}
-                  className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary focus:ring-primary cursor-pointer"
                 />
 
-                <label
-                  htmlFor="termsAccepted"
-                  className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
-                >
-                  I agree to the{" "}
+                <p id="sign-up-consent" className="min-w-0 text-pretty text-sm leading-5 text-muted-foreground">
+                  <label htmlFor="termsAccepted" className="cursor-pointer text-sm font-normal leading-5">
+                    I agree to the
+                  </label>{" "}
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setShowTerms(true);
-                    }}
-                    className="text-primary underline hover:text-accent"
+                    onClick={() => setShowTerms(true)}
+                    className="cursor-pointer text-sm font-normal leading-5 whitespace-nowrap text-primary underline underline-offset-2 hover:text-accent"
                   >
                     Terms of Service
                   </button>
-                  .
-                </label>
+                  {" "}<label htmlFor="termsAccepted" className="cursor-pointer text-sm font-normal leading-5">
+                    and acknowledge the
+                  </label>{" "}
+                  <PrivacyPolicyDialog />.
+                </p>
               </div>
 
               {verificationWidget}
