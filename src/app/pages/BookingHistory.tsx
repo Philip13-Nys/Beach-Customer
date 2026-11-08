@@ -1,5 +1,8 @@
 import { cancellationReason, isCompletedBooking } from "../utils/bookingPolicy";
-import { cancelCustomerBooking, submitBookingReview } from "../services/customerBookings";
+import {
+  cancelCustomerBooking,
+  submitBookingReview,
+} from "../services/customerBookings";
 import {
   bookingKind,
   bookingName,
@@ -15,21 +18,13 @@ import {
   CreditCard,
   Eye,
   X,
-  Edit2,
   AlertTriangle,
   CheckCircle2,
   Star,
   MessageSquare,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import {
-  collection,
-  query,
-  where,
-  doc,
-  updateDoc,
-  onSnapshot,
-} from "firebase/firestore";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { auth, customerDb } from "../components/firebase";
 
 type BookingWithPayment = Booking & {
@@ -51,12 +46,13 @@ type BookingWithPayment = Booking & {
   bookingDate?: string;
   bookingTime?: string;
   participants?: number;
+  quantity?: number;
   roomRate?: number;
   checkIn: string;
   checkOut: string;
   guests?: number;
   nights?: number;
-  addOns?: { name: string; price?: number }[];
+  addOns?: { name: string; price?: number; quantity?: number; type?: string }[];
   totalPrice: number;
   status: string;
   paymentStatus?: string;
@@ -87,7 +83,12 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, authLoading } = useApp();
   const location = useLocation();
 
-  if (authLoading) return <p role="status" className="py-12 text-center text-muted-foreground">Loading your account...</p>;
+  if (authLoading)
+    return (
+      <p role="status" className="py-12 text-center text-muted-foreground">
+        Loading your account...
+      </p>
+    );
   if (!user) {
     return <Navigate to="/auth" replace state={{ from: location }} />;
   }
@@ -146,7 +147,6 @@ export default function BookingHistory() {
 
 function BookingHistoryContent() {
   const cancelAction = useAsyncAction();
-  const modifyAction = useAsyncAction();
   const reviewAction = useAsyncAction();
 
   const { user } = useApp();
@@ -161,18 +161,12 @@ function BookingHistoryContent() {
   const [cancelMessage, setCancelMessage] = useState("");
   const [cancelError, setCancelError] = useState("");
   const [cancelTarget, setCancelTarget] = useState<string | null>(null);
-  const [modifyTarget, setModifyTarget] = useState<BookingWithPayment | null>(
-    null,
-  );
-
-  const [modifyDates, setModifyDates] = useState({
-    checkIn: "",
-    checkOut: "",
-  });
-
-  const [modifySuccess, setModifySuccess] = useState(false);
-  const [modifyError, setModifyError] = useState("");
-
+  const [cancelRemarks, setCancelRemarks] = useState("");
+  const [, setPolicyClock] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setPolicyClock((v) => v + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
   const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewComment, setReviewComment] = useState("");
@@ -205,7 +199,9 @@ function BookingHistoryContent() {
       console.error("Booking History user does not match auth.currentUser.");
       setBookings([]);
       setBookingsLoading(false);
-      setBookingsError("Your session could not be verified. Please log in again.");
+      setBookingsError(
+        "Your session could not be verified. Please log in again.",
+      );
       return;
     }
 
@@ -267,7 +263,9 @@ function BookingHistoryContent() {
         console.error("Booking listener error:", error);
         if (isActive) {
           setBookingsLoading(false);
-          setBookingsError("Unable to load your booking history. Please refresh and try again.");
+          setBookingsError(
+            "Unable to load your booking history. Please refresh and try again.",
+          );
         }
       },
     );
@@ -312,7 +310,7 @@ function BookingHistoryContent() {
     try {
       setCancelError("");
       setCancelMessage("");
-      await cancelCustomerBooking(id);
+      await cancelCustomerBooking(id, cancelRemarks);
 
       setBookings((previous) =>
         previous.map((booking) =>
@@ -321,107 +319,21 @@ function BookingHistoryContent() {
       );
 
       setCancelTarget(null);
-      setCancelMessage("Booking cancelled successfully. Any refund must be arranged with the resort.");
+      setCancelMessage(
+        "Booking cancelled successfully. Any refund must be arranged with the resort.",
+      );
     } catch (error) {
       console.error("Error cancelling booking:", error);
-      setCancelError(error instanceof Error ? error.message : "Unable to cancel this booking. Please try again.");
+      setCancelError(
+        error instanceof Error
+          ? error.message
+          : "Unable to cancel this booking. Please try again.",
+      );
     }
   };
 
   const handleCancel = (id: string) => {
     return cancelAction.run(() => performCancel(id));
-  };
-
-  const performModify = async () => {
-    if (!modifyTarget || !modifyDates.checkIn || !modifyDates.checkOut) {
-      setModifyError("Please select both check-in and check-out dates.");
-      return;
-    }
-
-    const checkInDate = new Date(`${modifyDates.checkIn}T00:00:00`);
-    const checkOutDate = new Date(`${modifyDates.checkOut}T00:00:00`);
-
-    if (
-      Number.isNaN(checkInDate.getTime()) ||
-      Number.isNaN(checkOutDate.getTime()) ||
-      checkOutDate <= checkInDate
-    ) {
-      setModifyError("Check-out must be after check-in.");
-      return;
-    }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (checkInDate < today) {
-      setModifyError("Check-in cannot be in the past.");
-      return;
-    }
-
-    const nights = Math.round(
-      (checkOutDate.getTime() - checkInDate.getTime()) / 86400000,
-    );
-
-    const addOnsTotal = (modifyTarget.addOns || []).reduce(
-      (sum, addon) => sum + Number(addon.price || 0),
-      0,
-    );
-
-    const totalPrice =
-      Number(modifyTarget.roomRate || 0) * nights + addOnsTotal;
-
-    const amountPaid = Number(modifyTarget.amountPaid || 0);
-    const remainingBalance = Math.max(0, totalPrice - amountPaid);
-
-    const { paymentStatus } = getPaymentSummary({
-      totalPrice,
-      amountPaid,
-      paymentStatus: modifyTarget.paymentStatus,
-    });
-
-    setModifyError("");
-
-    try {
-      await updateDoc(doc(customerDb, "Bookings", modifyTarget.id), {
-        checkIn: modifyDates.checkIn,
-        checkOut: modifyDates.checkOut,
-        nights,
-        totalPrice,
-        remainingBalance,
-        paymentStatus,
-      });
-
-      setBookings((previous) =>
-        previous.map((booking) =>
-          booking.id === modifyTarget.id
-            ? {
-                ...booking,
-                checkIn: modifyDates.checkIn,
-                checkOut: modifyDates.checkOut,
-                nights,
-                totalPrice,
-                remainingBalance,
-                paymentStatus,
-              }
-            : booking,
-        ),
-      );
-
-      setModifySuccess(true);
-
-      window.setTimeout(() => {
-        setModifyTarget(null);
-        setModifySuccess(false);
-        setModifyError("");
-      }, 1500);
-    } catch (error) {
-      console.error("Error modifying booking:", error);
-      setModifyError("Unable to update this reservation. Please try again.");
-    }
-  };
-
-  const handleModify = () => {
-    return modifyAction.run(() => performModify());
   };
 
   const openReviewModal = (booking: BookingWithPayment) => {
@@ -496,7 +408,9 @@ function BookingHistoryContent() {
     } catch (error) {
       console.error("Error submitting review:", error);
       setReviewError(
-        error instanceof Error ? error.message : "Unable to submit your review. Please try again.",
+        error instanceof Error
+          ? error.message
+          : "Unable to submit your review. Please try again.",
       );
     } finally {
       setReviewSubmitting(false);
@@ -510,6 +424,7 @@ function BookingHistoryContent() {
   const statusColors: Record<string, string> = {
     confirmed: "bg-green-100 text-green-700",
     pending: "bg-yellow-100 text-yellow-700",
+    "pending-payment-verification": "bg-yellow-100 text-yellow-700",
     cancelled: "bg-red-100 text-red-600",
     completed: "bg-blue-100 text-blue-700",
     "checked-in": "bg-indigo-100 text-indigo-700",
@@ -553,9 +468,30 @@ function BookingHistoryContent() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      {cancelMessage && <p role="status" className="my-4 rounded-xl bg-green-50 p-3 text-sm text-green-800">{cancelMessage}</p>}
-      {cancelError && !cancelTarget && <p role="alert" className="my-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{cancelError}</p>}
-      {bookingsError && <p role="alert" className="my-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{bookingsError}</p>}
+      {cancelMessage && (
+        <p
+          role="status"
+          className="my-4 rounded-xl bg-green-50 p-3 text-sm text-green-800"
+        >
+          {cancelMessage}
+        </p>
+      )}
+      {cancelError && !cancelTarget && (
+        <p
+          role="alert"
+          className="my-4 rounded-xl bg-red-50 p-3 text-sm text-red-700"
+        >
+          {cancelError}
+        </p>
+      )}
+      {bookingsError && (
+        <p
+          role="alert"
+          className="my-4 rounded-xl bg-red-50 p-3 text-sm text-red-700"
+        >
+          {bookingsError}
+        </p>
+      )}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1
@@ -643,9 +579,11 @@ function BookingHistoryContent() {
         )}
       </div>
 
-      {bookingsLoading && !bookings.length ? <p role="status" className="py-12 text-center text-muted-foreground">Loading your bookings...</p>
-      : bookingsError && !bookings.length ? null
-      : filtered.length === 0 ? (
+      {bookingsLoading && !bookings.length ? (
+        <p role="status" className="py-12 text-center text-muted-foreground">
+          Loading your bookings...
+        </p>
+      ) : bookingsError && !bookings.length ? null : filtered.length === 0 ? (
         <div className="text-center py-20">
           <div className="text-5xl mb-4">🏖️</div>
 
@@ -745,14 +683,14 @@ function BookingHistoryContent() {
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5" />
                         {isActivity
-                          ? `${booking.bookingDate || booking.checkIn || "—"}${booking.bookingTime ? ` · ${booking.bookingTime}` : ""}`
+                          ? `${booking.bookingDate || booking.checkIn || "—"}${bookingKind(booking) !== "package" && booking.bookingTime ? ` · ${booking.bookingTime}` : ""}`
                           : `${booking.checkIn || "—"} – ${booking.checkOut || "—"}`}
                       </span>
 
                       <span className="flex items-center gap-1">
                         <Users className="w-3.5 h-3.5" />
                         {isActivity
-                          ? `${booking.participants ?? booking.guests ?? 0} participants`
+                          ? `${booking.participants ?? booking.guests ?? 0} participants${bookingKind(booking) !== "package" && booking.quantity !== undefined ? ` · ${booking.quantity} unit(s)` : ""}`
                           : `${booking.guests ?? 0} guests · ${booking.nights ?? 0} nights`}
                       </span>
 
@@ -799,6 +737,10 @@ function BookingHistoryContent() {
                             className="px-2 py-0.5 bg-secondary text-primary text-[10px] rounded-full"
                           >
                             {addon.name}
+                            {addon.type !== "package" &&
+                            addon.quantity !== undefined
+                              ? ` · ${addon.quantity} unit(s)`
+                              : ""}
                           </span>
                         ))}
                       </div>
@@ -826,37 +768,33 @@ function BookingHistoryContent() {
                           </Link>
                         )}
 
-                      {normalizedStatus === "confirmed" && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setModifyTarget(booking);
-                              setModifyDates({
-                                checkIn: booking.checkIn,
-                                checkOut: booking.checkOut,
-                              });
-                              setModifyError("");
-                              setModifySuccess(false);
-                            }}
-                            className="flex items-center gap-1.5 text-xs font-medium text-foreground px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                            Modify
-                          </button>
-                      )}
-
-                      {["pending", "confirmed"].includes(normalizedStatus) && (
+                      {[
+                        "pending",
+                        "pending-payment-verification",
+                        "confirmed",
+                      ].includes(normalizedStatus) && (
                         <div>
                           <button
                             type="button"
-                            onClick={() => { setCancelError(""); setCancelTarget(booking.id); }}
-                            disabled={Boolean(cancellationReason(booking)) || cancelAction.pending}
+                            onClick={() => {
+                              setCancelError("");
+                              setCancelRemarks("");
+                              setCancelTarget(booking.id);
+                            }}
+                            disabled={
+                              Boolean(cancellationReason(booking)) ||
+                              cancelAction.pending
+                            }
                             className="disabled:opacity-50 flex items-center gap-1.5 text-xs font-medium text-destructive px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-colors"
                           >
                             <X className="w-3.5 h-3.5" />
                             Cancel Booking
                           </button>
-                          {cancellationReason(booking) && <p className="mt-1 text-xs text-muted-foreground max-w-sm">{cancellationReason(booking)}</p>}
+                          {cancellationReason(booking) && (
+                            <p className="mt-1 text-xs text-muted-foreground max-w-sm">
+                              {cancellationReason(booking)}
+                            </p>
+                          )}
                         </div>
                       )}
 
@@ -887,7 +825,12 @@ function BookingHistoryContent() {
 
       {cancelTarget && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="cancel-booking-title" className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-booking-title"
+            className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+          >
             <div className="flex items-center gap-3 mb-3">
               <AlertTriangle className="w-6 h-6 text-destructive flex-shrink-0" />
 
@@ -905,7 +848,25 @@ function BookingHistoryContent() {
               cancelled. Cancelling does not automatically issue a refund.
             </p>
 
-            {cancelError && <p role="alert" className="mb-4 text-sm text-red-700">{cancelError}</p>}
+            {cancelError && (
+              <p role="alert" className="mb-4 text-sm text-red-700">
+                {cancelError}
+              </p>
+            )}
+            <label className="block text-sm mb-4">
+              Reason for cancellation
+              <textarea
+                value={cancelRemarks}
+                onChange={(e) => setCancelRemarks(e.target.value)}
+                disabled={cancelAction.pending}
+                minLength={5}
+                maxLength={1000}
+                required
+                rows={3}
+                className="mt-2 w-full rounded-xl border border-border p-3 text-sm"
+                placeholder="Please explain why you need to cancel (at least 5 characters)."
+              />
+            </label>
             <div className="flex gap-3">
               <button
                 type="button"
@@ -919,140 +880,15 @@ function BookingHistoryContent() {
               <button
                 type="button"
                 onClick={() => handleCancel(cancelTarget)}
-                disabled={cancelAction.pending}
+                disabled={
+                  cancelAction.pending || cancelRemarks.trim().length < 5
+                }
                 aria-busy={cancelAction.pending}
                 className="flex-1 bg-destructive text-white py-2.5 rounded-xl text-sm font-medium hover:bg-red-700 transition-colors"
               >
                 {cancelAction.pending ? "Cancelling..." : "Yes, Cancel"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {modifyTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
-            <h2
-              className="font-semibold text-foreground mb-4"
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: "1.25rem",
-              }}
-            >
-              Modify Reservation
-            </h2>
-
-            {modifySuccess ? (
-              <div className="flex items-center gap-2 text-green-700 py-4 justify-center">
-                <CheckCircle2 className="w-5 h-5" />
-                Reservation updated!
-              </div>
-            ) : (
-              <>
-                <div className="space-y-3 mb-5">
-                  <div>
-                    <label
-                      htmlFor="modify-checkin"
-                      className="block text-xs font-medium text-foreground mb-1.5"
-                    >
-                      New Check-in Date
-                    </label>
-
-                    <input
-                      id="modify-checkin"
-                      type="date"
-                      min={new Date().toISOString().slice(0, 10)}
-                      value={modifyDates.checkIn}
-                      onChange={(event) => {
-                        setModifyDates((dates) => ({
-                          ...dates,
-                          checkIn: event.target.value,
-                          checkOut:
-                            dates.checkOut &&
-                            dates.checkOut <= event.target.value
-                              ? ""
-                              : dates.checkOut,
-                        }));
-                        setModifyError("");
-                      }}
-                      className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="modify-checkout"
-                      className="block text-xs font-medium text-foreground mb-1.5"
-                    >
-                      New Check-out Date
-                    </label>
-
-                    <input
-                      id="modify-checkout"
-                      type="date"
-                      min={
-                        modifyDates.checkIn
-                          ? (() => {
-                              const nextDate = new Date(
-                                `${modifyDates.checkIn}T00:00:00`,
-                              );
-                              nextDate.setDate(nextDate.getDate() + 1);
-                              return [
-                                nextDate.getFullYear(),
-                                String(nextDate.getMonth() + 1).padStart(
-                                  2,
-                                  "0",
-                                ),
-                                String(nextDate.getDate()).padStart(2, "0"),
-                              ].join("-");
-                            })()
-                          : new Date().toISOString().slice(0, 10)
-                      }
-                      value={modifyDates.checkOut}
-                      onChange={(event) => {
-                        setModifyDates((dates) => ({
-                          ...dates,
-                          checkOut: event.target.value,
-                        }));
-                        setModifyError("");
-                      }}
-                      className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
-                </div>
-
-                {modifyError && (
-                  <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-4">
-                    {modifyError}
-                  </p>
-                )}
-
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (modifyAction.pending) return;
-                      setModifyTarget(null);
-                      setModifyError("");
-                    }}
-                    className="flex-1 border border-border text-foreground py-2.5 rounded-xl text-sm hover:bg-muted transition-colors"
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleModify}
-                    disabled={modifyAction.pending || modifySuccess}
-                    aria-busy={modifyAction.pending}
-                    className="flex-1 bg-primary text-white py-2.5 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
-                  >
-                    {modifyAction.pending ? "Updating..." : "Update"}
-                  </button>
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}

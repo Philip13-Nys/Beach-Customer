@@ -5,6 +5,9 @@ import {
 } from "../utils/bookingPresentation";
 import { useParams, Link, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
+import { useResortSettings } from "../../hooks/useResortSettings";
+import { formatStayTime, isStayTime } from "../utils/stayTimes";
+import { activityTimeLabel } from "../utils/activityAvailability";
 import { doc, onSnapshot } from "firebase/firestore";
 import { customerDb } from "../components/firebase";
 import {
@@ -33,14 +36,30 @@ type Booking = {
   bookingDate?: string;
   bookingTime?: string;
   participants?: number;
+  quantity?: number;
   roomImage?: string;
   checkIn?: string;
   checkOut?: string;
-  addOns?: { name: string; price?: number }[];
+  checkInTime?: string;
+  checkOutTime?: string;
+  addOns?: {
+    name: string;
+    price?: number;
+    type?: string;
+    bookingDate?: string;
+    bookingTime?: string;
+    participants?: number;
+    quantity?: number;
+  }[];
   specialRequests?: string;
 };
 
 export default function BookingConfirmation() {
+  const {
+    settings: resortSettings,
+    loading: loadingStayTimes,
+    error: stayTimesError,
+  } = useResortSettings();
   const { id } = useParams();
   const navigate = useNavigate();
 
@@ -96,7 +115,8 @@ export default function BookingConfirmation() {
   const formatStatus = (value?: string) => {
     const status = value || "pending";
     return (
-      status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ")
+      status.charAt(0).toUpperCase() +
+      status.slice(1).replaceAll("_", " ").replaceAll("-", " ")
     );
   };
 
@@ -134,6 +154,7 @@ export default function BookingConfirmation() {
   const paymentStatus = booking.paymentStatus ?? "unpaid";
   const bookingStatus = booking.status ?? "pending";
   const isActivity = bookingKind(booking) !== "room";
+  const isPackage = bookingKind(booking) === "package";
 
   return (
     <div className="print-area max-w-2xl mx-auto px-4 py-12">
@@ -196,7 +217,9 @@ export default function BookingConfirmation() {
                 className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                   bookingStatus === "confirmed"
                     ? "bg-green-100 text-green-700"
-                    : bookingStatus === "pending"
+                    : ["pending", "pending-payment-verification"].includes(
+                          bookingStatus,
+                        )
                       ? "bg-yellow-100 text-yellow-700"
                       : "bg-gray-100 text-gray-600"
                 }`}
@@ -226,7 +249,11 @@ export default function BookingConfirmation() {
             <Calendar className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
             <div>
               <div className="text-xs text-muted-foreground">
-                {isActivity ? "Activity Date" : "Check-in"}
+                {isPackage
+                  ? "Booking Date"
+                  : isActivity
+                    ? "Activity Date"
+                    : "Check-in"}
               </div>
               <div className="text-sm font-semibold text-foreground">
                 {(isActivity
@@ -235,28 +262,51 @@ export default function BookingConfirmation() {
               </div>
               {!isActivity && (
                 <div className="text-xs text-muted-foreground">
-                  From 2:00 PM
+                  {isStayTime(booking.checkInTime)
+                    ? `From ${formatStayTime(booking.checkInTime)}`
+                    : loadingStayTimes
+                      ? "Loading stay times..."
+                      : stayTimesError
+                        ? "Contact the resort for check-in time"
+                        : `From ${formatStayTime(resortSettings.checkInTime)}`}
+                </div>
+              )}
+              {isActivity && !isPackage && booking.quantity !== undefined && (
+                <div className="text-xs text-muted-foreground">
+                  {booking.quantity} unit(s) reserved
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex items-start gap-2">
-            <Calendar className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-            <div>
-              <div className="text-xs text-muted-foreground">
-                {isActivity ? "Scheduled Time" : "Check-out"}
-              </div>
-              <div className="text-sm font-semibold text-foreground">
-                {(isActivity ? booking.bookingTime : booking.checkOut) ?? "—"}
-              </div>
-              {!isActivity && (
+          {!isPackage && (
+            <div className="flex items-start gap-2">
+              <Calendar className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+              <div>
                 <div className="text-xs text-muted-foreground">
-                  Until 12:00 PM
+                  {isActivity ? "Scheduled Time" : "Check-out"}
                 </div>
-              )}
+                <div className="text-sm font-semibold text-foreground">
+                  {(isActivity
+                    ? booking.bookingTime
+                      ? activityTimeLabel(booking.bookingTime)
+                      : "—"
+                    : booking.checkOut) ?? "—"}
+                </div>
+                {!isActivity && (
+                  <div className="text-xs text-muted-foreground">
+                    {isStayTime(booking.checkOutTime)
+                      ? `Until ${formatStayTime(booking.checkOutTime)}`
+                      : loadingStayTimes
+                        ? "Loading stay times..."
+                        : stayTimesError
+                          ? "Contact the resort for check-out time"
+                          : `Until ${formatStayTime(resortSettings.checkOutTime)}`}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex items-start gap-2">
             <Users className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
@@ -339,6 +389,11 @@ export default function BookingConfirmation() {
                   className="px-2.5 py-1 bg-secondary text-primary text-xs rounded-full"
                 >
                   {addon.name}
+                  {addon.type === "package"
+                    ? ` · ${addon.participants || 1} participant(s)`
+                    : addon.bookingDate && addon.bookingTime
+                      ? ` · ${addon.bookingDate} ${activityTimeLabel(addon.bookingTime)} · ${addon.participants || 1} participant(s)${addon.quantity !== undefined ? ` · ${addon.quantity} unit(s)` : ""}`
+                      : ""}
                 </span>
               ))}
             </div>
@@ -366,8 +421,8 @@ export default function BookingConfirmation() {
         <div className="space-y-2">
           {[
             "Your booking is saved. Check this page for status updates.",
-            "The resort team will review your reservation.",
-            "Complete your payment if it is still unpaid.",
+            "The receptionist will verify your payment reference against the actual payment received.",
+            "Your reservation is confirmed only after payment and room availability have been checked and your request is accepted.",
             "Prepare for your stay and enjoy your trip!",
           ].map((step, index) => (
             <div key={index} className="flex items-start gap-2.5">

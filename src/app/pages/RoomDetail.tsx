@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRoomAvailability } from "../../hooks/useRoomAvailability";
 import {
   useParams,
   Link,
@@ -55,6 +56,9 @@ export default function RoomDetail() {
   const [room, setRoom] = useState<RoomType | null>(null);
   const [loading, setLoading] = useState(true);
   const [reservationFeePercent, setReservationFeePercent] = useState(5);
+  const start = checkIn || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  const end = checkOut || new Date(Date.parse(`${start}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  const availability = useRoomAvailability(room, start, end);
 
   // Format YYYY-MM-DD without timezone-related date shifts.
   const formatDate = (date: string) => {
@@ -155,6 +159,7 @@ export default function RoomDetail() {
           const data = roomSnap.data();
 
           const roomData: RoomType = {
+            ...data,
             id: roomSnap.id,
             name: String(data.name || ""),
             count: Math.max(
@@ -366,16 +371,16 @@ export default function RoomDetail() {
               <span className="text-muted-foreground text-sm">/night</span>
             </div>
 
-            {room.count <= 0 ? (
+            {!availability.loading && availability.available <= 0 ? (
               <div className="text-center py-6">
                 <div className="text-4xl mb-2">😞</div>
 
                 <p className="font-medium text-foreground">
-                  This room is unavailable
+                  Fully Booked or Unavailable
                 </p>
 
                 <p className="text-sm text-muted-foreground mt-1 mb-4">
-                  Check back later or explore other options.
+                  {availability.error || "Choose different dates or explore other rooms."}
                 </p>
 
                 <Link
@@ -423,6 +428,7 @@ export default function RoomDetail() {
                 </div>
 
                 <button
+                  disabled={availability.loading || availability.available <= 0 || Boolean(availability.error)}
                   onClick={() => {
                     const bookingUrl = `/booking/${room.id}?${stayParams}`;
                     if (!user) {
@@ -435,13 +441,13 @@ export default function RoomDetail() {
 
                     navigate(bookingUrl);
                   }}
-                  className="w-full bg-accent hover:bg-accent/90 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm"
+                  className="w-full bg-accent hover:bg-accent/90 disabled:opacity-50 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm"
                 >
-                  Reserve This Room
+                  {availability.loading ? "Checking Availability..." : availability.available <= 0 ? "Fully Booked" : "Reserve This Room"}
                 </button>
 
                 <p className="text-center text-xs text-muted-foreground mt-3">
-                  No charge yet — confirm on the next step
+                  {availability.error || "Availability is subject to receptionist confirmation. Down payment details are required on the next step."}
                 </p>
 
                 <div className="mt-4 pt-4 border-t border-border space-y-2">

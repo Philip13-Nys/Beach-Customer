@@ -44,6 +44,7 @@ function harness() {
     listeners = [],
     saved = new Map();
   const auth = { currentUser: null };
+  let displayLookup = async () => ({ exists: () => true, data: () => ({ value:"BK-002" }) });
   const react = {
     createContext: () => ({ Provider: "provider" }),
     useState(value) {
@@ -88,7 +89,7 @@ function harness() {
     where: (field, op, value) => ({ kind: "where", field, op, value }),
     orderBy: (field, direction) => ({ kind: "order", field, direction }),
     limit: (count) => ({ kind: "limit", count }),
-    getDoc: async () => ({
+    getDoc: async (ref) => ref.collection === "DisplayReferences" ? displayLookup(ref) : ({
       exists: () => true,
       data: () => ({ firstName: "Guest" }),
     }),
@@ -113,6 +114,8 @@ function harness() {
     "react/jsx-runtime": { jsx: (type, props) => ({ type, props }) },
     "../utils/bookingNotifications": bookingHelpers,
     "../services/customerBookings": {},
+    "../utils/registration": {},
+    "../services/emailVerification": {},
     "../components/firebase": { auth, customerDb: {} },
     "firebase/auth": {
       onAuthStateChanged: (unused, callback) => {
@@ -131,6 +134,7 @@ function harness() {
   return {
     render,
     saved,
+    setDisplayLookup(lookup) { displayLookup=lookup; },
     listeners,
     listener: (collection) =>
       listeners.findLast(
@@ -139,7 +143,7 @@ function harness() {
       ),
     async signIn(id = "customer") {
       render();
-      auth.currentUser = { uid: id };
+      auth.currentUser = { uid: id, emailVerified: true };
       await authCallback(auth.currentUser);
       render();
     },
@@ -274,6 +278,58 @@ test("failed notification creation is retryable and signed-out listeners cannot 
   await settle();
   assert.equal(h.saved.size, 1);
   assert.equal(h.render().notifications.length, 0);
+});
+
+test("customer fallback uses the receptionist confirmation ID, readable reference and wording", async () => {
+  const h=harness();await h.signIn();const listener=h.listener("Bookings");
+  listener.next(snapshot([{ type:"added",doc:docSnapshot("reservation",{ status:"pending" }) }]));
+  const confirmed={ status:"confirmed",bookingType:"service",serviceName:"Snorkling",bookingRef:"ACT-reservation",checkIn:"2026-11-09" };
+  listener.next(snapshot([{ type:"modified",doc:docSnapshot("reservation",confirmed) }]));await settle();
+  assert.equal(h.saved.size,1);
+  const value=h.saved.get("customer_booking-confirmed-reservation");
+  assert.ok(value);assert.equal(value.message,"Your booking BK-002 has been confirmed. Service: Snorkling. Date: 2026-11-09.");
+  assert.equal(value.eventId,"booking-confirmed-reservation");assert.equal(value.targetPath,"/booking-history");
+  assert.equal(h.saved.has("customer_booking-status-reservation-confirmed"),false);
+});
+
+test("an existing receptionist confirmation is retained without resetting read state or timestamp", async () => {
+  const h=harness();await h.signIn();const listener=h.listener("Bookings");
+  listener.next(snapshot([{ type:"added",doc:docSnapshot("reservation",{ status:"pending" }) }]));
+  const original={ eventId:"booking-confirmed-reservation",title:"Booking Confirmed",message:"Receptionist confirmation",read:true,createdAt:{ toMillis:()=>123 } };
+  h.saved.set("customer_booking-confirmed-reservation",original);
+  listener.next(snapshot([{ type:"modified",doc:docSnapshot("reservation",{ status:"confirmed" }) }]));await settle();
+  assert.equal(h.saved.size,1);assert.equal(h.saved.get("customer_booking-confirmed-reservation"),original);
+  assert.equal(original.read,true);assert.equal(original.createdAt.toMillis(),123);
+});
+
+test("historical duplicates prefer the receptionist message and count only its unread state",async()=>{
+  const h=harness();await h.signIn();
+  const docs=[
+    docSnapshot("customer_booking-status-reservation-confirmed",{ userId:"customer",eventId:"booking-status-reservation-confirmed",title:"Booking Confirmed",message:"Old customer copy",read:false,createdAt:{ toMillis:()=>30 } }),
+    docSnapshot("customer_booking-confirmed-reservation",{ userId:"customer",eventId:"booking-confirmed-reservation",title:"Booking Confirmed",message:"Receptionist confirmation",read:true,createdAt:{ toMillis:()=>20 } }),
+    docSnapshot("customer_booking-confirmed-another",{ userId:"customer",eventId:"booking-confirmed-another",title:"Booking Confirmed",message:"Different booking",read:false,createdAt:{ toMillis:()=>10 } }),
+  ];
+  h.listener("Notifications").next({ docs });
+  const state=h.render();assert.equal(state.notifications.length,2);assert.equal(state.unreadCount,1);
+  assert.equal(state.notifications[0].message,"Receptionist confirmation");assert.equal(state.notifications[0].read,true);
+  assert.equal(docs.length,3);assert.equal(h.saved.size,0);
+});
+
+test("old notification document IDs identify duplicates when event metadata is missing",()=>{
+  const legacy={ id:"user_booking-status-booking%2E1-confirmed",userId:"user" },preferred={ id:"user_booking-confirmed-booking%2E1",userId:"user" },other={ id:"notice",userId:"user",eventId:"inquiry-updated" };
+  const result=bookingHelpers.distinctBookingConfirmations([legacy,other,preferred]);
+  assert.equal(result.length,2);assert.ok(result.includes(preferred));assert.ok(result.includes(other));assert.equal(result.includes(legacy),false);
+});
+
+test("display-code failure keeps the confirmation fallback and logout cancels pending writes",async()=>{
+  const h=harness();await h.signIn();const listener=h.listener("Bookings");
+  listener.next(snapshot([{ type:"added",doc:docSnapshot("first",{ status:"pending" }) },{ type:"added",doc:docSnapshot("second",{ status:"pending" }) }]));
+  h.setDisplayLookup(async()=>{throw Error("Display code unavailable");});
+  listener.next(snapshot([{ type:"modified",doc:docSnapshot("first",{ status:"confirmed",bookingRef:"ACT-first" }) }]));await settle();
+  assert.equal(h.saved.size,1);assert.match(h.saved.get("customer_booking-confirmed-first").message,/has been confirmed/);
+  let resolve;h.setDisplayLookup(()=>new Promise(done=>resolve=done));
+  listener.next(snapshot([{ type:"modified",doc:docSnapshot("second",{ status:"confirmed" }) }]));
+  await h.signOut();resolve({ data:()=>({ value:"BK-003" }) });await settle();assert.equal(h.saved.size,1);
 });
 
 test("a rejected submission does not falsely announce another payment received", () => {

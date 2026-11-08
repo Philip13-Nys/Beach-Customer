@@ -1,17 +1,27 @@
+import { useActivityAvailability } from "../../hooks/useActivityAvailability";
+import ActivitySchedulePicker from "../components/ActivitySchedulePicker";
+import PackageBookingFields from "../components/PackageBookingFields";
+import {
+  activityCapacityLabel,
+  activityPolicy,
+  activitySession,
+  activitySlots,
+  activityTimeLabel,
+  type ActivityRecord,
+} from "../utils/activityAvailability";
 import { useActivityReviews } from "../../hooks/useActivityReviews";
 import { activityRating } from "../utils/bookingPresentation";
 import { ActivityRating } from "../components/ActivityRating";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useState, useEffect } from "react";
+import BookingPayment, {
+  emptyManualPayment,
+  validManualPayment,
+} from "../components/BookingPayment";
+import { requestKey, submitBookingRequest } from "../services/bookingRequests";
 import { useNavigate } from "react-router";
 import { useApp } from "../context/AppContext";
-import { auth, customerDb, db } from "../components/firebase";
-import {
-  addDoc,
-  collection,
-  getDocs,
-  serverTimestamp,
-} from "firebase/firestore";
+import { auth } from "../components/firebase";
 import {
   Clock,
   Users,
@@ -22,7 +32,7 @@ import {
   Package as PackageIcon,
 } from "lucide-react";
 
-type ActivityItem = {
+type ActivityItem = ActivityRecord & {
   id: string;
   name: string;
   category: string;
@@ -39,16 +49,6 @@ type ActivityItem = {
 
 const CATEGORIES = ["All", "Diving", "Water Activities", "Tour"] as const;
 type Category = (typeof CATEGORIES)[number];
-
-const DEFAULT_TIME_SLOTS = [
-  "8:00 AM",
-  "9:00 AM",
-  "10:00 AM",
-  "11:00 Am",
-  "1:00 PM",
-  "2:00 PM",
-  "3:00 PM",
-];
 
 const catMap: Record<Category, string[]> = {
   All: [
@@ -102,12 +102,7 @@ function getSchedule(data: Record<string, any>): string[] {
 }
 
 function getLocalDateString() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
+  return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
 }
 
 function mapActivity(
@@ -119,6 +114,7 @@ function mapActivity(
     typeof data.status === "string" ? data.status.toLowerCase() : "";
 
   const rawPrice =
+    (itemType === "package" ? data.packagePrice : undefined) ??
     data.price ??
     data.basePrice ??
     data.packagePrice ??
@@ -133,15 +129,35 @@ function mapActivity(
       : Number(String(rawPrice).replace(/[₱,\s]/g, ""));
 
   return {
+    ...data,
     id,
     name: data.name || data.packageName || data.title || "",
     category: data.category || "",
     description: data.description || "",
-    duration: data.duration || "",
+    duration:
+      itemType === "package"
+        ? ""
+        : activityPolicy(data)
+          ? `${activityPolicy(data)!.durationMinutes} minutes`
+          : data.duration || "",
     price: Number.isFinite(parsedPrice) ? parsedPrice : 0,
     maxParticipants: Math.max(
       1,
-      Number(data.maxParticipants ?? data.maxGuests ?? data.capacity ?? 1),
+      itemType === "package"
+        ? 100
+        : Number(
+            activityPolicy(data)?.capacityType === "units"
+              ? Math.min(
+                  100,
+                  activityPolicy(data)!.capacity *
+                    activityPolicy(data)!.participantsPerUnit!,
+                )
+              : (activityPolicy(data)?.capacity ??
+                  data.maxParticipants ??
+                  data.maxGuests ??
+                  data.capacity ??
+                  1),
+          ),
     ),
     available: status
       ? ["active", "available"].includes(status)
@@ -158,69 +174,65 @@ export default function Services() {
   const activityReviews = useActivityReviews();
 
   const [cat, setCat] = useState<Category>("All");
-  const [selected, setSelected] = useState<ActivityItem | null>(null);
+  const inventory = useActivityAvailability();
+  const [selectedItem, setSelectedItem] = useState<ActivityItem | null>(null);
+  const [availabilityDate, setAvailabilityDate] = useState(getLocalDateString);
+  const liveSelected = selectedItem
+    ? inventory.catalog.find(
+        (item) =>
+          item.id === selectedItem.id &&
+          item.itemType === selectedItem.itemType,
+      )
+    : null;
+  const selected = liveSelected
+    ? mapActivity(liveSelected.id, liveSelected, liveSelected.itemType)
+    : selectedItem
+      ? { ...selectedItem, available: false }
+      : null;
   const [services, setServices] = useState<ActivityItem[]>([]);
   const [packages, setPackages] = useState<ActivityItem[]>([]);
   const [loadingServices, setLoadingServices] = useState(true);
   const [loadError, setLoadError] = useState("");
 
+  const [manualPayment, setManualPayment] = useState(emptyManualPayment);
   const [bookingDate, setBookingDate] = useState("");
   const [bookingTime, setBookingTime] = useState("");
   const [participants, setParticipants] = useState(1);
+  const [quantity, setQuantity] = useState(1);
   const [booked, setBooked] = useState(false);
 
   const [savingBooking, setSavingBooking] = useState(false);
   const [bookingError, setBookingError] = useState("");
   const [savedBookingRef, setSavedBookingRef] = useState("");
 
+  const requestedQuantity =
+    selected?.itemType === "service" &&
+    activityPolicy(selected)?.capacityType === "units"
+      ? quantity
+      : participants;
+  const invalidUnitQuantity =
+    selected?.itemType === "service" &&
+    activityPolicy(selected)?.capacityType === "units" &&
+    (!Number.isInteger(quantity) ||
+      quantity < 1 ||
+      participants > quantity * activityPolicy(selected)!.participantsPerUnit!);
   const { user } = useApp();
   const navigate = useNavigate();
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadActivities() {
-      setLoadingServices(true);
-      setLoadError("");
-
-      try {
-        const [serviceSnapshot, packageSnapshot] = await Promise.all([
-          getDocs(collection(db, "services")),
-          getDocs(collection(db, "packages")),
-        ]);
-
-        if (cancelled) return;
-
-        setServices(
-          serviceSnapshot.docs.map((doc) =>
-            mapActivity(doc.id, doc.data(), "service"),
-          ),
-        );
-
-        setPackages(
-          packageSnapshot.docs.map((doc) =>
-            mapActivity(doc.id, doc.data(), "package"),
-          ),
-        );
-      } catch (error) {
-        console.error("Error loading services and packages:", error);
-
-        if (!cancelled) {
-          setLoadError(
-            "Unable to load activities. Check your Firebase connection and collection permissions.",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoadingServices(false);
-      }
-    }
-
-    loadActivities();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setServices(
+      inventory.catalog
+        .filter((item) => item.itemType === "service")
+        .map((item) => mapActivity(item.id, item, "service")),
+    );
+    setPackages(
+      inventory.catalog
+        .filter((item) => item.itemType === "package")
+        .map((item) => mapActivity(item.id, item, "package")),
+    );
+    setLoadingServices(inventory.loading);
+    setLoadError(inventory.error);
+  }, [inventory.catalog, inventory.loading, inventory.error]);
 
   const matchesCategory = (item: ActivityItem) => {
     if (cat === "All") return true;
@@ -233,14 +245,16 @@ export default function Services() {
 
   const closeBooking = () => {
     if (bookingAction.pending) return;
-    setSelected(null);
+    setSelectedItem(null);
     setBooked(false);
     setBookingDate("");
     setBookingTime("");
     setParticipants(1);
+    setQuantity(1);
     setSavingBooking(false);
     setBookingError("");
     setSavedBookingRef("");
+    setManualPayment(emptyManualPayment());
   };
 
   const performBook = async () => {
@@ -254,12 +268,22 @@ export default function Services() {
       return;
     }
 
-    if (!selected || !bookingDate || !bookingTime) {
-      setBookingError("Please select a date and time.");
+    if (
+      !selected ||
+      !bookingDate ||
+      (selected.itemType === "service" && !bookingTime)
+    ) {
+      setBookingError(
+        "Please select a booking date and, for services, a session.",
+      );
       return;
     }
 
-    if (participants < 1 || participants > selected.maxParticipants) {
+    if (
+      !Number.isInteger(participants) ||
+      participants < 1 ||
+      participants > selected.maxParticipants
+    ) {
       setBookingError("Please enter a valid number of participants.");
       return;
     }
@@ -269,6 +293,36 @@ export default function Services() {
       return;
     }
 
+    if (!validManualPayment(manualPayment, selected.price * participants)) {
+      setBookingError("Please provide your down payment reference number.");
+      return;
+    }
+    const availability =
+      selected.itemType === "service"
+        ? activitySession(
+            selected,
+            bookingDate,
+            bookingTime,
+            inventory.catalog,
+            inventory.occupied,
+          )
+        : null;
+    if (
+      !selected.available ||
+      inventory.loading ||
+      inventory.error ||
+      (availability &&
+        (availability.error ||
+          availability.remaining < requestedQuantity ||
+          invalidUnitQuantity))
+    ) {
+      setBookingError(
+        inventory.error ||
+          availability?.error ||
+          "This selection is unavailable. Choose another service session or package.",
+      );
+      return;
+    }
     setSavingBooking(true);
     setBookingError("");
 
@@ -283,12 +337,19 @@ export default function Services() {
 
       const email = currentUser?.email || (user as any)?.email || "";
 
-      const bookingRef = `ACT-${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2, 7)
-        .toUpperCase()}`;
-
       const totalPrice = selected.price * participants;
+      const signature = JSON.stringify([
+        selected.itemType,
+        selected.id,
+        bookingDate,
+        bookingTime,
+        participants,
+        quantity,
+        totalPrice,
+        manualPayment.reference.trim(),
+      ]);
+      const requestId = requestKey(userId, signature);
+      const bookingRef = "ACT-" + requestId;
 
       const bookingData = {
         bookingRef,
@@ -314,6 +375,10 @@ export default function Services() {
         checkOut: bookingDate,
         guests: participants,
         participants,
+        ...(selected.itemType === "service" &&
+        activityPolicy(selected)?.capacityType === "units"
+          ? { quantity }
+          : {}),
         nights: 0,
         duration: selected.duration || "",
 
@@ -321,22 +386,24 @@ export default function Services() {
         totalPrice,
         amountPaid: 0,
         remainingBalance: totalPrice,
-        paymentStatus: "unpaid",
 
         addOns: [],
-        status: "pending",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
       };
 
-      await addDoc(collection(customerDb, "Bookings"), bookingData);
+      const savedId = await submitBookingRequest(
+        requestId,
+        bookingData,
+        manualPayment,
+      );
 
-      setSavedBookingRef(bookingRef);
+      setSavedBookingRef(`ACT-${savedId}`);
       setBooked(true);
     } catch (error) {
       console.error("Error saving activity booking:", error);
       setBookingError(
-        "Your booking could not be saved. Please check your connection and try again.",
+        error instanceof Error
+          ? error.message
+          : "Your booking could not be saved. Please try again.",
       );
     } finally {
       setSavingBooking(false);
@@ -347,134 +414,208 @@ export default function Services() {
     return bookingAction.run(() => performBook());
   };
 
-  const renderActivityCard = (item: ActivityItem) => (
-    <div
-      key={`${item.itemType}-${item.id}`}
-      className="bg-white rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-lg transition-all duration-300 group"
-    >
+  const renderActivityCard = (item: ActivityItem) => {
+    const isPackage = item.itemType === "package";
+    const policy = isPackage ? null : activityPolicy(item);
+    const sessions = activitySlots(item, availabilityDate).map((time) => ({
+      time,
+      ...activitySession(
+        item,
+        availabilityDate,
+        time,
+        inventory.catalog,
+        inventory.occupied,
+      ),
+    }));
+    const availablePlaces = Math.max(
+      0,
+      ...sessions.map((session) => session.remaining),
+    );
+    const canOpenDetails =
+      item.available &&
+      (isPackage || (Boolean(policy) && availablePlaces > 0)) &&
+      !inventory.loading &&
+      !inventory.error;
+    const upcomingSessions = sessions.filter(
+      (session) =>
+        Date.parse(`${availabilityDate}T${session.time}:00+08:00`) > Date.now(),
+    );
+    const availabilityMessage = (() => {
+      if (inventory.loading) return "Checking availability...";
+      if (inventory.error)
+        return "Unable to check availability. Please try again.";
+      if (!policy)
+        return "Schedule Not Set · Contact the resort for scheduling.";
+      if (!item.available || policy.capacity === 0)
+        return "Unavailable on the selected date.";
+      if (!sessions.length)
+        return `No sessions scheduled on ${availabilityDate}. Choose another date.`;
+      if (!upcomingSessions.length)
+        return availabilityDate === getLocalDateString()
+          ? "No remaining sessions today. Choose another date."
+          : `All sessions on ${availabilityDate} have passed. Choose another date.`;
+      if (availablePlaces === 0)
+        return upcomingSessions.every((session) => !session.error)
+          ? `Fully booked on ${availabilityDate}. Choose another date.`
+          : `No available sessions on ${availabilityDate}. Choose another date.`;
+      return `${availablePlaces} of ${policy.capacity} ${activityCapacityLabel(item)} available on ${availabilityDate}`;
+    })();
+    return (
       <div
-        className={`relative overflow-hidden ${
-          item.itemType === "package" ? "h-24" : "h-48"
-        }`}
+        key={`${item.itemType}-${item.id}`}
+        className="bg-white rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-lg transition-all duration-300 group"
       >
-        {item.itemType === "service" && item.image ? (
-          <img
-            src={item.image}
-            alt={item.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-          />
-        ) : item.itemType === "package" ? (
-          <div className="w-full h-full bg-gradient-to-r from-amber-50 to-orange-100 flex items-center justify-center">
-            <PackageIcon className="w-10 h-10 text-amber-600" />
-          </div>
-        ) : (
-          <div className="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400 text-sm">
-            No Image Available
-          </div>
-        )}
-
-        <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
-
-        <div className="absolute top-3 left-3 flex gap-2 flex-wrap">
-          <span className="px-2.5 py-1 bg-white/95 rounded-full text-[10px] font-medium text-primary capitalize">
-            {item.category.replace(/-/g, " ") || item.itemType}
-          </span>
-
-          {item.itemType === "package" && (
-            <span className="px-2.5 py-1 bg-amber-100 rounded-full text-[10px] font-medium text-amber-800 flex items-center gap-1">
-              <PackageIcon className="w-3 h-3" />
-              Package
-            </span>
-          )}
-
-          {item.difficulty && (
-            <span
-              className={`px-2.5 py-1 rounded-full text-[10px] font-medium ${
-                difficultyColor[item.difficulty] || "bg-gray-100 text-gray-600"
-              }`}
-            >
-              {item.difficulty}
-            </span>
-          )}
-        </div>
-
-        {!item.available && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-            <span className="text-white font-medium text-sm bg-black/60 px-3 py-1 rounded-full">
-              Unavailable
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="p-5">
-        <h3
-          className="font-semibold text-foreground mb-2"
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: "1.1rem",
-          }}
+        <div
+          className={`relative overflow-hidden ${
+            item.itemType === "package" ? "h-24" : "h-48"
+          }`}
         >
-          {item.name}
-        </h3>
+          {item.itemType === "service" && item.image ? (
+            <img
+              src={item.image}
+              alt={item.name}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            />
+          ) : item.itemType === "package" ? (
+            <div className="w-full h-full bg-gradient-to-r from-amber-50 to-orange-100 flex items-center justify-center">
+              <PackageIcon className="w-10 h-10 text-amber-600" />
+            </div>
+          ) : (
+            <div className="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400 text-sm">
+              No Image Available
+            </div>
+          )}
 
-        <div className="mb-3">
-          <ActivityRating
-            {...activityRating(item, activityReviews.reviews)}
-            loading={activityReviews.loading}
-            error={activityReviews.error}
-          />
-        </div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
 
-        <p className="text-muted-foreground text-xs leading-relaxed mb-3 line-clamp-2">
-          {item.description || "Discover this resort experience."}
-        </p>
-
-        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-4">
-          <span className="flex items-center gap-1">
-            <Clock className="w-3.5 h-3.5" />
-            {item.duration || "Duration not set"}
-          </span>
-
-          <span className="flex items-center gap-1">
-            <Users className="w-3.5 h-3.5" />
-            Max {item.maxParticipants}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between pt-3 border-t border-border">
-          <div>
-            <span className="text-accent font-bold text-xl">
-              ₱{item.price.toLocaleString("en-PH")}
+          <div className="absolute top-3 left-3 flex gap-2 flex-wrap">
+            <span className="px-2.5 py-1 bg-white/95 rounded-full text-[10px] font-medium text-primary capitalize">
+              {item.category.replace(/-/g, " ") || item.itemType}
             </span>
-            <span className="text-muted-foreground text-xs">/person</span>
+
+            {item.itemType === "package" && (
+              <span className="px-2.5 py-1 bg-amber-100 rounded-full text-[10px] font-medium text-amber-800 flex items-center gap-1">
+                <PackageIcon className="w-3 h-3" />
+                Package
+              </span>
+            )}
+
+            {item.difficulty && (
+              <span
+                className={`px-2.5 py-1 rounded-full text-[10px] font-medium ${
+                  difficultyColor[item.difficulty] ||
+                  "bg-gray-100 text-gray-600"
+                }`}
+              >
+                {item.difficulty}
+              </span>
+            )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              if (item.available) {
-                setSelected(item);
-                setBookingDate("");
-                setBookingTime("");
-                setParticipants(1);
-                setBooked(false);
-              }
+          {!item.available && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+              <span className="text-white font-medium text-sm bg-black/60 px-3 py-1 rounded-full">
+                Unavailable
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="p-5">
+          <h3
+            className="font-semibold text-foreground mb-2"
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: "1.1rem",
             }}
-            disabled={!item.available}
-            className={`flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl transition-colors ${
-              item.available
-                ? "bg-accent text-white hover:bg-accent/90"
-                : "bg-muted text-muted-foreground cursor-not-allowed"
-            }`}
           >
-            Book
-            <ChevronRight className="w-4 h-4" />
-          </button>
+            {item.name}
+          </h3>
+
+          <div className="mb-3">
+            <ActivityRating
+              {...activityRating(item, activityReviews.reviews)}
+              loading={activityReviews.loading}
+              error={activityReviews.error}
+            />
+          </div>
+
+          <p className="text-muted-foreground text-xs leading-relaxed mb-3 line-clamp-2">
+            {item.description || "Discover this resort experience."}
+          </p>
+
+          {!isPackage && (
+            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-4">
+              <span className="flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" />
+                {item.duration || "Duration not set"}
+              </span>
+
+              <span className="flex items-center gap-1">
+                <Users className="w-3.5 h-3.5" />
+                {policy
+                  ? `${policy.capacity} ${activityCapacityLabel(item)} per session`
+                  : "Schedule not configured"}
+              </span>
+            </div>
+          )}
+
+          {!isPackage && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              {policy
+                ? `${activityTimeLabel(policy.opensAt)} – ${activityTimeLabel(policy.closesAt)} · `
+                : ""}
+              {availabilityMessage}
+            </p>
+          )}
+          {policy && !inventory.loading && !inventory.error && (
+            <details className="mb-3 text-xs text-muted-foreground">
+              <summary className="cursor-pointer">
+                Session quantities · total, reserved, available
+              </summary>
+              <ul className="mt-2 max-h-32 space-y-1 overflow-auto">
+                {sessions.map((session) => (
+                  <li key={session.time}>
+                    {activityTimeLabel(session.time)} · Total {session.total} ·
+                    Reserved {session.reserved} · Processing {session.held} ·{" "}
+                    {session.remaining} available
+                    {session.error ? ` · ${session.error}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <div className="flex items-center justify-between pt-3 border-t border-border">
+            <div>
+              <span className="text-accent font-bold text-xl">
+                ₱{item.price.toLocaleString("en-PH")}
+              </span>
+              <span className="text-muted-foreground text-xs">/person</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (canOpenDetails) {
+                  setSelectedItem(item);
+                  setBookingDate(availabilityDate);
+                  setBookingTime("");
+                  setParticipants(1);
+                  setQuantity(1);
+                  setBooked(false);
+                }
+              }}
+              disabled={!canOpenDetails}
+              className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl transition-colors bg-accent text-white enabled:hover:bg-accent/90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              View Details
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -504,12 +645,26 @@ export default function Services() {
           </h1>
 
           <p className="text-white/80 text-sm mt-2 max-w-md">
-            Dive, snorkel, explore, relax — discover activities and packages for
-            your perfect island itinerary.
+            View activity details, schedules, prices, and available units or
+            participant slots before making a reservation.
           </p>
         </div>
       </div>
 
+      <label className="mb-5 flex flex-wrap items-center gap-3 text-sm font-medium">
+        Check availability for
+        <input
+          aria-label="Activity availability date"
+          type="date"
+          min={getLocalDateString()}
+          value={availabilityDate}
+          onChange={(event) => setAvailabilityDate(event.target.value)}
+          className="rounded-xl border border-border bg-white px-4 py-2"
+        />
+        <span className="text-xs font-normal text-muted-foreground">
+          Philippine time · availability is subject to confirmation
+        </span>
+      </label>
       <div className="flex gap-2 overflow-x-auto pb-2 mb-8">
         {CATEGORIES.map((category) => (
           <button
@@ -604,7 +759,12 @@ export default function Services() {
 
       {selected && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="activity-booking-title"
+            className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
+          >
             <div className="relative h-32">
               {selected.image ? (
                 <img
@@ -629,7 +789,12 @@ export default function Services() {
               </button>
 
               <div className="absolute bottom-3 left-4">
-                <h2 className="text-white font-semibold">{selected.name}</h2>
+                <h2
+                  id="activity-booking-title"
+                  className="text-white font-semibold"
+                >
+                  {selected.name}
+                </h2>
                 <p className="text-white/80 text-xs">
                   {selected.itemType === "package" ? "Package" : "Activity"} · ₱
                   {selected.price.toLocaleString("en-PH")} per person
@@ -670,10 +835,12 @@ export default function Services() {
                     <span>{bookingDate}</span>
                   </div>
 
-                  <div className="flex justify-between gap-3">
-                    <span className="text-muted-foreground">Time</span>
-                    <span>{bookingTime}</span>
-                  </div>
+                  {selected.itemType === "service" && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">Time</span>
+                      <span>{activityTimeLabel(bookingTime)}</span>
+                    </div>
+                  )}
 
                   <div className="flex justify-between gap-3">
                     <span className="text-muted-foreground">Participants</span>
@@ -688,7 +855,8 @@ export default function Services() {
                   </div>
 
                   <p className="text-xs text-muted-foreground pt-1">
-                    Payment status: Unpaid · Booking status: Pending
+                    Payment status: Pending verification · Booking status:
+                    Pending payment verification
                   </p>
                 </div>
 
@@ -714,74 +882,40 @@ export default function Services() {
               </div>
             ) : (
               <div className="p-5">
-                <div className="space-y-3 mb-5">
-                  <div>
-                    <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                      Preferred Date
-                    </label>
-
-                    <input
-                      type="date"
-                      value={bookingDate}
-                      min={getLocalDateString()}
-                      onChange={(e) => {
-                        setBookingDate(e.target.value);
-                        setBookingTime("");
-                      }}
-                      className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-foreground mb-1.5">
-                      Time Slot
-                    </label>
-
-                    <select
-                      value={bookingTime}
-                      onChange={(e) => setBookingTime(e.target.value)}
-                      disabled={!bookingDate}
-                      className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:bg-gray-100 disabled:cursor-not-allowed"
-                    >
-                      <option value="">
-                        {!bookingDate ? "Choose a date first" : "Select a time"}
-                      </option>
-
-                      {(selected.schedule.length > 0
-                        ? selected.schedule
-                        : DEFAULT_TIME_SLOTS
-                      ).map((time, index) => (
-                        <option key={`${time}-${index}`} value={time}>
-                          {time}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-foreground mb-1.5">
-                      Participants (max {selected.maxParticipants})
-                    </label>
-
-                    <input
-                      type="number"
-                      min={1}
-                      max={selected.maxParticipants}
-                      value={participants}
-                      onChange={(e) => {
-                        const value = Number(e.target.value);
-                        setParticipants(
-                          Math.min(
-                            selected.maxParticipants,
-                            Math.max(1, value || 1),
-                          ),
-                        );
-                      }}
-                      className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
-                </div>
+                <p className="mb-3 text-sm text-muted-foreground">
+                  {selected.description}
+                </p>
+                {selected.itemType === "package" ? (
+                  <PackageBookingFields
+                    name={selected.name}
+                    value={{ bookingDate, bookingTime: "", participants }}
+                    onChange={(value) => {
+                      setBookingDate(value.bookingDate);
+                      setParticipants(value.participants);
+                      setBookingError("");
+                    }}
+                    minDate={getLocalDateString()}
+                    disabled={bookingAction.pending}
+                  />
+                ) : (
+                  <ActivitySchedulePicker
+                    item={selected}
+                    value={{ bookingDate, bookingTime, participants, quantity }}
+                    onChange={(value) => {
+                      setBookingDate(value.bookingDate);
+                      setBookingTime(value.bookingTime);
+                      setParticipants(value.participants);
+                      setQuantity(value.quantity || 1);
+                      setBookingError("");
+                    }}
+                    catalog={inventory.catalog}
+                    occupied={inventory.occupied}
+                    loading={inventory.loading}
+                    error={inventory.error}
+                    minDate={getLocalDateString()}
+                    disabled={bookingAction.pending}
+                  />
+                )}
 
                 <div className="flex justify-between text-sm font-semibold text-foreground mb-4 p-3 bg-secondary rounded-xl">
                   <span>Total</span>
@@ -790,6 +924,12 @@ export default function Services() {
                   </span>
                 </div>
 
+                <BookingPayment
+                  total={selected.price * participants}
+                  value={manualPayment}
+                  onChange={setManualPayment}
+                  disabled={bookingAction.pending}
+                />
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -806,16 +946,31 @@ export default function Services() {
                     aria-busy={bookingAction.pending}
                     disabled={
                       bookingAction.pending ||
+                      inventory.loading ||
+                      Boolean(inventory.error) ||
+                      (selected.itemType === "service" &&
+                        (activitySession(
+                          selected,
+                          bookingDate,
+                          bookingTime,
+                          inventory.catalog,
+                          inventory.occupied,
+                        ).remaining < requestedQuantity ||
+                          Boolean(invalidUnitQuantity))) ||
                       !bookingDate ||
-                      !bookingTime ||
+                      (selected.itemType === "service" && !bookingTime) ||
                       participants < 1 ||
-                      participants > selected.maxParticipants
+                      participants > selected.maxParticipants ||
+                      !validManualPayment(
+                        manualPayment,
+                        selected.price * participants,
+                      )
                     }
                     className="flex-1 bg-accent text-white py-2.5 rounded-xl text-sm font-medium hover:bg-accent/90 disabled:opacity-50"
                   >
                     {bookingAction.pending
                       ? "Submitting Booking..."
-                      : "Confirm Booking"}
+                      : "Submit Booking Request"}
                   </button>
                 </div>
               </div>

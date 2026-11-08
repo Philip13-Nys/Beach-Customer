@@ -1,6 +1,39 @@
+import { useActivityAvailability } from "../../hooks/useActivityAvailability";
+import ActivitySchedulePicker, {
+  type ActivitySchedule,
+} from "../components/ActivitySchedulePicker";
+import PackageBookingFields from "../components/PackageBookingFields";
+import ServiceAddOnAvailability from "../components/ServiceAddOnAvailability";
+import {
+  assertActivityCapacity,
+  bookingActivityReservations,
+  activityEnabled,
+  activityPolicy,
+  hasAvailableActivitySession,
+  activitySession,
+  activityTimeLabel,
+} from "../utils/activityAvailability";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
-import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
+import { useResortSettings } from "../../hooks/useResortSettings";
+import { formatStayTime } from "../utils/stayTimes";
+import { useEffect, useRef, useState } from "react";
+import BookingPayment, {
+  emptyManualPayment,
+  validManualPayment,
+} from "../components/BookingPayment";
+import { requestKey, submitBookingRequest } from "../services/bookingRequests";
+import {
+  checkAvailability,
+  useRoomAvailability,
+} from "../../hooks/useRoomAvailability";
+import { CANCELLATION_POLICY } from "../utils/bookingPolicy";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { addDays, format, isValid, parseISO } from "date-fns";
 import { useApp } from "../context/AppContext";
 import {
@@ -12,14 +45,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { auth, db, customerDb } from "../components/firebase";
-import {
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  serverTimestamp,
-} from "firebase/firestore";
+import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 
 type RoomType = {
   id: string;
@@ -31,7 +57,8 @@ type RoomType = {
   image: string;
 };
 
-type SelectedAddOn = {
+type SelectedAddOn = ActivitySchedule & {
+  unitPrice: number;
   id: string;
   type: "service" | "package";
   name: string;
@@ -40,7 +67,11 @@ type SelectedAddOn = {
 };
 
 function isCalendarDate(value: unknown): value is string {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && isValid(parseISO(value));
+  return (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    isValid(parseISO(value))
+  );
 }
 
 function nextCalendarDay(date: string) {
@@ -49,30 +80,51 @@ function nextCalendarDay(date: string) {
 
 export default function BookingPage() {
   const bookingAction = useAsyncAction();
+  const activityInventory = useActivityAvailability();
+  const [addOnSchedules, setAddOnSchedules] = useState<
+    Record<string, ActivitySchedule>
+  >({});
+  const {
+    settings: resortSettings,
+    loading: loadingStayTimes,
+    error: stayTimesError,
+  } = useResortSettings();
 
   const { id } = useParams();
   const { user, authLoading, createNotification } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const previousStay = location.state as { checkIn?: string; checkOut?: string; guests?: number } | null;
+  const previousStay = location.state as {
+    checkIn?: string;
+    checkOut?: string;
+    guests?: number;
+  } | null;
 
   const today = format(new Date(), "yyyy-MM-dd");
   const requestedCheckIn = searchParams.get("checkIn") || previousStay?.checkIn;
-  const requestedCheckOut = searchParams.get("checkOut") || previousStay?.checkOut;
-  const requestedGuests = Number(searchParams.get("guests") || previousStay?.guests);
-  const initialCheckIn = isCalendarDate(requestedCheckIn) && requestedCheckIn >= today
-    ? requestedCheckIn
-    : today;
+  const requestedCheckOut =
+    searchParams.get("checkOut") || previousStay?.checkOut;
+  const requestedGuests = Number(
+    searchParams.get("guests") || previousStay?.guests,
+  );
+  const initialCheckIn =
+    isCalendarDate(requestedCheckIn) && requestedCheckIn >= today
+      ? requestedCheckIn
+      : today;
 
   const [checkIn, setCheckIn] = useState(initialCheckIn);
   const [checkOut, setCheckOut] = useState(() =>
-    initialCheckIn === requestedCheckIn && isCalendarDate(requestedCheckOut) && requestedCheckOut > initialCheckIn
+    initialCheckIn === requestedCheckIn &&
+    isCalendarDate(requestedCheckOut) &&
+    requestedCheckOut > initialCheckIn
       ? requestedCheckOut
       : nextCalendarDay(initialCheckIn),
   );
   const [guests, setGuests] = useState(
-    Number.isSafeInteger(requestedGuests) && requestedGuests > 0 ? requestedGuests : 2,
+    Number.isSafeInteger(requestedGuests) && requestedGuests > 0
+      ? requestedGuests
+      : 2,
   );
   const [specialRequests, setSpecialRequests] = useState("");
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
@@ -82,46 +134,31 @@ export default function BookingPage() {
   const [addOnServices, setAddOnServices] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([]);
   const [loadingAddOns, setLoadingAddOns] = useState(true);
-  const [availableRooms, setAvailableRooms] = useState(0);
-  const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const availability = useRoomAvailability(room, checkIn, checkOut);
+  const availableRooms = availability.available;
+  const checkingAvailability = availability.loading;
+  const [manualPayment, setManualPayment] = useState(emptyManualPayment);
+  const requestIdentity = useRef({ signature: "", id: "" });
   const [reservationFeePercent, setReservationFeePercent] = useState(5);
   const [arrivalTime, setArrivalTime] = useState("");
 
   useEffect(() => {
-    const loadAddOns = async () => {
-      try {
-        const [servicesSnap, packagesSnap] = await Promise.all([
-          getDocs(collection(db, "services")),
-          getDocs(collection(db, "packages")),
-        ]);
-
-        const serviceData = servicesSnap.docs
-          .map((item) => ({
-            id: item.id,
-            type: "service",
-            ...item.data(),
-          }))
-          .filter((item: any) => item.status === "active");
-
-        const packageData = packagesSnap.docs
-          .map((item) => ({
-            id: item.id,
-            type: "package",
-            ...item.data(),
-          }))
-          .filter((item: any) => item.status === "active");
-
-        setAddOnServices(serviceData);
-        setPackages(packageData);
-      } catch (error) {
-        console.error("Error loading services and packages:", error);
-      } finally {
-        setLoadingAddOns(false);
-      }
-    };
-
-    loadAddOns();
-  }, []);
+    setAddOnServices(
+      activityInventory.catalog.filter(
+        (item) =>
+          item.itemType === "service" &&
+          (!item.status || item.status === "active"),
+      ),
+    );
+    setPackages(
+      activityInventory.catalog.filter(
+        (item) =>
+          item.itemType === "package" &&
+          (!item.status || item.status === "active"),
+      ),
+    );
+    setLoadingAddOns(activityInventory.loading);
+  }, [activityInventory.catalog, activityInventory.loading]);
 
   useEffect(() => {
     const loadReservationFee = async () => {
@@ -158,6 +195,7 @@ export default function BookingPage() {
           const data = roomSnap.data();
 
           const roomData: RoomType = {
+            ...data,
             id: roomSnap.id,
             name: data.name || "",
             count: Number(data.count || 0),
@@ -197,179 +235,20 @@ export default function BookingPage() {
   };
 
   const checkRoomAvailability = async (): Promise<boolean> => {
-    if (!room || !checkIn || !checkOut || checkOut <= checkIn) {
-      setAvailableRooms(0);
-      return false;
-    }
-
-    setCheckingAvailability(true);
-
+    if (!room) return false;
     try {
-      const [roomsSnap, bookingsSnap, reservationsSnap] = await Promise.all([
-        getDocs(collection(db, "rooms")),
-        getDocs(collection(customerDb, "Bookings")),
-        getDocs(collection(db, "reservations")),
-      ]);
-
-      const normalize = (value: unknown): string =>
-        String(value ?? "")
-          .trim()
-          .toLowerCase();
-
-      const selectedRoomId = room.id.trim();
-      const selectedRoomName = normalize(room.name);
-
-      const matchesRoomType = (data: Record<string, any>): boolean => {
-        const ids = [data.roomTypeId, data.roomId, data.typeId]
-          .filter((value) => value !== undefined && value !== null)
-          .map((value) => String(value).trim());
-
-        const names = [
-          data.roomTypeName,
-          data.roomName,
-          data.roomType,
-          data.type,
-        ]
-          .filter(Boolean)
-          .map(normalize);
-
-        return ids.includes(selectedRoomId) || names.includes(selectedRoomName);
-      };
-
-      const physicalRooms = roomsSnap.docs.filter((roomDoc) => {
-        const data = roomDoc.data();
-
-        const typeName = normalize(
-          data.type ?? data.roomType ?? data.roomTypeName,
-        );
-
-        const typeId = String(data.roomTypeId ?? data.typeId ?? "").trim();
-
-        if (data.deleted === true || data.isActive === false) {
-          return false;
-        }
-
-        return typeName === selectedRoomName || typeId === selectedRoomId;
-      });
-
-      const totalRooms = physicalRooms.length;
-
-      const allBookings = new Map<string, Record<string, any>>();
-
-      bookingsSnap.forEach((bookingDoc) => {
-        const data = bookingDoc.data();
-
-        if (!matchesRoomType(data)) {
-          return;
-        }
-
-        allBookings.set(bookingDoc.id, {
-          ...data,
-          _id: bookingDoc.id,
-          _source: "Bookings",
-        });
-      });
-
-      reservationsSnap.forEach((reservationDoc) => {
-        const data = reservationDoc.data();
-
-        if (!matchesRoomType(data)) {
-          return;
-        }
-
-        const linkedBookingId = String(data.bookingId ?? "").trim();
-
-        if (linkedBookingId && allBookings.has(linkedBookingId)) {
-          return;
-        }
-
-        allBookings.set(linkedBookingId || `reservation-${reservationDoc.id}`, {
-          ...data,
-          _id: reservationDoc.id,
-          _source: "reservations",
-        });
-      });
-
-      const toDateNumber = (date: string): number => {
-        const [year, month, day] = date.split("-").map(Number);
-        return new Date(year, month - 1, day).getTime();
-      };
-
-      const requestedStart = toDateNumber(checkIn);
-      const requestedEnd = toDateNumber(checkOut);
-
-      const activeStatuses = new Set([
-        "pending",
-        "reserved",
-        "confirmed",
-        "approved",
-        "checked-in",
-        "checkedin",
-        "occupied",
-      ]);
-
-      let bookedRooms = 0;
-
-      allBookings.forEach((booking) => {
-        const status = normalize(booking.status);
-
-        if (!activeStatuses.has(status)) {
-          return;
-        }
-
-        if (!booking.checkIn || !booking.checkOut) {
-          return;
-        }
-
-        const bookingStart = toDateNumber(String(booking.checkIn).slice(0, 10));
-        const bookingEnd = toDateNumber(String(booking.checkOut).slice(0, 10));
-
-        if (
-          !Number.isFinite(bookingStart) ||
-          !Number.isFinite(bookingEnd) ||
-          bookingEnd <= bookingStart
-        ) {
-          return;
-        }
-
-        if (requestedStart < bookingEnd && requestedEnd > bookingStart) {
-          const requestedRoomCount = Number(
-            booking.roomCount ?? booking.numberOfRooms ?? 1,
-          );
-
-          const roomCount =
-            Number.isFinite(requestedRoomCount) && requestedRoomCount > 1
-              ? Math.floor(requestedRoomCount)
-              : 1;
-
-          bookedRooms += roomCount;
-        }
-      });
-
-      const available = Math.max(
-        0,
-        totalRooms - Math.min(totalRooms, bookedRooms),
-      );
-
-      setAvailableRooms(available);
-      return available > 0;
-    } catch (error) {
-      console.error("Availability check failed:", error);
-      setAvailableRooms(0);
-      alert("Unable to check room availability. Please try again.");
+      return (await checkAvailability(room, checkIn, checkOut)) > 0;
+    } catch {
+      alert("Unable to verify room availability. Please try again.");
       return false;
-    } finally {
-      setCheckingAvailability(false);
     }
   };
 
-  useEffect(() => {
-    if (!room) return;
-
-    void checkRoomAvailability();
-  }, [room, checkIn, checkOut]);
-
-  const stayQuery = new URLSearchParams({ checkIn, checkOut, guests: String(guests) }).toString();
+  const stayQuery = new URLSearchParams({
+    checkIn,
+    checkOut,
+    guests: String(guests),
+  }).toString();
   useEffect(() => {
     if (!loadingRoom && !authLoading && !user) {
       navigate("/auth", {
@@ -409,36 +288,82 @@ export default function BookingPage() {
     ),
   );
 
+  const getSchedule = (id: string): ActivitySchedule =>
+    addOnSchedules[id] || {
+      bookingDate: checkIn,
+      bookingTime: "",
+      participants: 1,
+    };
   const addOns: SelectedAddOn[] = selectedAddOns
     .map((selectedId): SelectedAddOn | null => {
-      if (selectedId.startsWith("package-")) {
-        const packageId = selectedId.replace("package-", "");
-        const pkg = packages.find((p) => p.id === packageId);
-
-        if (!pkg) return null;
-
-        return {
-          id: pkg.id,
-          type: "package",
-          name: pkg.name,
-          price: Number(pkg.packagePrice || 0),
-          services: Array.isArray(pkg.services) ? pkg.services : [],
-        };
-      }
-
-      const svc = addOnServices.find((s) => s.id === selectedId);
-
-      if (!svc) return null;
-
+      const kind = selectedId.startsWith("package-") ? "package" : "service";
+      const id = kind === "package" ? selectedId.slice(8) : selectedId;
+      const item = activityInventory.catalog.find(
+        (item) => item.itemType === kind && item.id === id,
+      );
+      if (!item) return null;
+      const chosen = getSchedule(selectedId);
+      const schedule =
+        kind === "package"
+          ? {
+              bookingDate: checkIn,
+              bookingTime: "",
+              participants: chosen.participants,
+            }
+          : chosen;
+      const unitPrice = Number(
+        kind === "package"
+          ? (item.packagePrice ?? item.price ?? 0)
+          : (item.price ?? 0),
+      );
       return {
-        id: svc.id,
-        type: "service",
-        name: svc.name,
-        price: Number(svc.price || 0),
-        services: [],
+        id,
+        type: kind,
+        name: item.name,
+        ...schedule,
+        unitPrice,
+        price: unitPrice * schedule.participants,
+        services: item.services || [],
       };
     })
     .filter((item): item is SelectedAddOn => item !== null);
+  const activityError = (() => {
+    if (!selectedAddOns.length) return "";
+    if (activityInventory.loading || activityInventory.error)
+      return activityInventory.error || "Checking activity availability...";
+    if (addOns.length !== selectedAddOns.length)
+      return "A selected activity no longer exists. Remove it and choose another activity.";
+    try {
+      const requests = bookingActivityReservations(
+        { checkIn, checkOut, addOns },
+        activityInventory.catalog,
+      );
+      for (const addon of addOns) {
+        if (addon.type === "package") continue;
+        const item = activityInventory.catalog.find(
+          (item) => item.itemType === addon.type && item.id === addon.id,
+        )!;
+        const result = activitySession(
+          item,
+          addon.bookingDate,
+          addon.bookingTime,
+          activityInventory.catalog,
+          activityInventory.occupied,
+        );
+        if (result.error) return result.error;
+      }
+      assertActivityCapacity(
+        requests,
+        activityInventory.catalog,
+        activityInventory.occupied,
+      );
+      return "";
+    } catch (error) {
+      return error instanceof Error
+        ? error.message
+        : "Choose valid activity sessions.";
+    }
+  })();
 
   const addOnTotal = addOns.reduce((sum, item) => sum + item.price, 0);
   const roomTotal = room.basePrice * nights;
@@ -455,6 +380,10 @@ export default function BookingPage() {
   };
 
   const performConfirm = async () => {
+    if (loadingStayTimes || stayTimesError) {
+      alert(stayTimesError || "Please wait for the resort stay times to load.");
+      return;
+    }
     const currentUser = auth.currentUser;
 
     if (!currentUser) {
@@ -480,6 +409,16 @@ export default function BookingPage() {
       return;
     }
 
+    if (activityError) {
+      alert(activityError);
+      return;
+    }
+    if (!validManualPayment(manualPayment, total)) {
+      alert(
+        "Please provide your down payment reference number before submitting.",
+      );
+      return;
+    }
     const stillAvailable = await checkRoomAvailability();
 
     if (!stillAvailable) {
@@ -504,6 +443,22 @@ export default function BookingPage() {
       const customerEmail = userData.email || currentUser.email || "";
       const customerPhone = userData.phone || "";
 
+      const signature = JSON.stringify([
+        room.id,
+        checkIn,
+        checkOut,
+        guests,
+        arrivalTime,
+        addOns,
+        total,
+        manualPayment.reference.trim(),
+      ]);
+      if (requestIdentity.current.signature !== signature)
+        requestIdentity.current = {
+          signature,
+          id: requestKey(currentUser.uid, signature),
+        };
+
       const bookingData = {
         userId: currentUser.uid,
         customerName,
@@ -515,6 +470,8 @@ export default function BookingPage() {
         roomCount: 1,
         checkIn,
         checkOut,
+        checkInTime: resortSettings.checkInTime,
+        checkOutTime: resortSettings.checkOutTime,
         arrivalTime,
         guests,
         nights,
@@ -524,56 +481,27 @@ export default function BookingPage() {
         reservationFeePercent,
         reservationFee,
         totalPrice: total,
-        status: "pending",
-        paymentStatus: "unpaid",
-        bookingRef:
-          "CBR-" +
-          new Date().getFullYear() +
-          "-" +
-          Math.floor(Math.random() * 900 + 100),
+        bookingRef: "CBR-" + requestIdentity.current.id,
         specialRequests,
-        createdAt: serverTimestamp(),
       };
 
-      const bookingDocRef = await addDoc(
-        collection(customerDb, "Bookings"),
+      const bookingId = await submitBookingRequest(
+        requestIdentity.current.id,
         bookingData,
+        manualPayment,
       );
+      const bookingDocRef = { id: bookingId };
 
       try {
         await createNotification({
           eventId: `booking-created-${bookingDocRef.id}`,
           type: "booking",
           title: "Booking submitted",
-          message: `Your reservation for ${room.name} (${checkIn} – ${checkOut}) has been submitted. Ref: ${bookingData.bookingRef}`,
+          message: `Your reservation for ${room.name} (${checkIn} – ${checkOut}) has been submitted for payment verification. Ref: CBR-${bookingId}`,
           targetPath: "/booking-history",
         });
       } catch (notificationError) {
         console.error("Booking notification failed:", notificationError);
-      }
-
-      const reservationData = {
-        bookingId: bookingDocRef.id,
-        roomTypeId: room.id,
-        roomName: room.name,
-        roomCount: 1,
-        checkIn,
-        checkOut,
-        arrivalTime,
-        guests,
-        customerName,
-        customerEmail,
-        status: "reserved",
-        createdAt: serverTimestamp(),
-      };
-
-      try {
-      } catch (reservationError) {
-        console.error("Admin reservation creation failed:", reservationError);
-
-        alert(
-          "Your customer booking was saved, but the admin reservation could not be created. Please contact the resort.",
-        );
       }
 
       navigate(`/booking-confirmation/${bookingDocRef.id}`);
@@ -632,11 +560,25 @@ export default function BookingPage() {
             <div>
               <div className="text-xs text-muted-foreground">Check-in</div>
               <div className="font-medium">{checkIn}</div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                {loadingStayTimes
+                  ? "Loading stay times..."
+                  : stayTimesError
+                    ? "Time unavailable"
+                    : `From ${formatStayTime(resortSettings.checkInTime)}`}
+              </div>
             </div>
 
             <div>
               <div className="text-xs text-muted-foreground">Check-out</div>
               <div className="font-medium">{checkOut}</div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                {loadingStayTimes
+                  ? "Loading stay times..."
+                  : stayTimesError
+                    ? "Time unavailable"
+                    : `Until ${formatStayTime(resortSettings.checkOutTime)}`}
+              </div>
             </div>
 
             <div>
@@ -674,7 +616,16 @@ export default function BookingPage() {
                   key={`${item.type}-${item.id}`}
                   className="flex justify-between text-sm py-1"
                 >
-                  <span>{item.name}</span>
+                  <span>
+                    {item.name}
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {item.bookingDate} · {activityTimeLabel(item.bookingTime)}{" "}
+                      · {item.participants} participant(s)
+                      {item.quantity !== undefined
+                        ? ` · ${item.quantity} unit(s)`
+                        : ""}
+                    </span>
+                  </span>
                   <span className="text-muted-foreground">
                     ₱{item.price.toLocaleString()}
                   </span>
@@ -712,6 +663,22 @@ export default function BookingPage() {
           </div>
         </div>
 
+        <BookingPayment
+          total={total}
+          value={manualPayment}
+          onChange={setManualPayment}
+          disabled={bookingAction.pending}
+        />
+        {stayTimesError && (
+          <p role="alert" className="mb-4 text-sm text-red-700">
+            {stayTimesError}
+          </p>
+        )}
+        {availability.error && (
+          <p role="alert" className="mb-4 text-sm text-red-700">
+            {availability.error}
+          </p>
+        )}
         <div className="flex gap-3">
           <button
             onClick={() => setStep("form")}
@@ -723,11 +690,21 @@ export default function BookingPage() {
 
           <button
             onClick={handleConfirm}
-            disabled={bookingAction.pending}
+            disabled={
+              bookingAction.pending ||
+              Boolean(activityError) ||
+              loadingStayTimes ||
+              Boolean(stayTimesError) ||
+              checkingAvailability ||
+              availableRooms <= 0 ||
+              !validManualPayment(manualPayment, total)
+            }
             aria-busy={bookingAction.pending}
-            className="flex-1 bg-accent text-white py-3 rounded-xl text-sm font-semibold hover:bg-accent/90 transition-colors"
+            className="flex-1 bg-accent text-white py-3 rounded-xl text-sm font-semibold hover:bg-accent/90 disabled:opacity-50 transition-colors"
           >
-            {bookingAction.pending ? "Submitting Booking..." : "Confirm Booking"}
+            {bookingAction.pending
+              ? "Submitting Booking..."
+              : "Submit Booking Request"}
           </button>
         </div>
       </div>
@@ -806,6 +783,32 @@ export default function BookingPage() {
             </div>
 
             <div className="mt-5">
+              <dl
+                aria-label="Resort check-in and check-out times"
+                aria-busy={loadingStayTimes}
+                className="mb-4 grid grid-cols-2 gap-3 rounded-xl bg-secondary p-3"
+              >
+                <div>
+                  <dt className="text-xs text-muted-foreground">Check-in</dt>
+                  <dd className="mt-1 text-sm font-semibold text-primary">
+                    {loadingStayTimes
+                      ? "Loading stay times..."
+                      : stayTimesError
+                        ? "Time unavailable"
+                        : `From ${formatStayTime(resortSettings.checkInTime)}`}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Check-out</dt>
+                  <dd className="mt-1 text-sm font-semibold text-primary">
+                    {loadingStayTimes
+                      ? "Loading stay times..."
+                      : stayTimesError
+                        ? "Time unavailable"
+                        : `Until ${formatStayTime(resortSettings.checkOutTime)}`}
+                  </dd>
+                </div>
+              </dl>
               <label className="block text-sm font-medium text-foreground mb-2">
                 Estimated Time of Arrival *
               </label>
@@ -922,44 +925,97 @@ export default function BookingPage() {
 
                     <div className="space-y-3">
                       {addOnServices.map((svc) => (
-                        <label
+                        <div
                           key={svc.id}
-                          className="flex items-center gap-3 p-3 rounded-xl border border-border cursor-pointer hover:bg-muted transition-colors"
+                          className={`rounded-xl border transition-colors ${selectedAddOns.includes(svc.id) ? "border-primary bg-primary/5" : "border-border"}`}
                         >
-                          <input
-                            type="checkbox"
-                            checked={selectedAddOns.includes(svc.id)}
-                            onChange={() => toggleAddOn(svc.id)}
-                            className="w-4 h-4 accent-primary rounded"
-                          />
-
-                          {svc.image ? (
-                            <img
-                              src={svc.image}
-                              alt={svc.name}
-                              className="w-12 h-9 rounded-lg object-cover flex-shrink-0"
+                          <label className="flex items-center gap-3 p-3 cursor-pointer hover:bg-muted rounded-xl">
+                            <input
+                              type="checkbox"
+                              aria-label={`Add ${svc.name}`}
+                              disabled={
+                                !selectedAddOns.includes(svc.id) &&
+                                (activityInventory.loading ||
+                                  Boolean(activityInventory.error) ||
+                                  !hasAvailableActivitySession(
+                                    svc,
+                                    checkIn,
+                                    checkOut,
+                                    activityInventory.catalog,
+                                    activityInventory.occupied,
+                                  ))
+                              }
+                              checked={selectedAddOns.includes(svc.id)}
+                              onChange={() => toggleAddOn(svc.id)}
+                              className="w-4 h-4 accent-primary rounded"
                             />
-                          ) : (
-                            <div className="w-12 h-9 rounded-lg bg-secondary flex-shrink-0" />
-                          )}
 
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-foreground">
-                              {svc.name}
+                            {svc.image ? (
+                              <img
+                                src={svc.image}
+                                alt={svc.name}
+                                className="w-12 h-9 rounded-lg object-cover flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-12 h-9 rounded-lg bg-secondary flex-shrink-0" />
+                            )}
+
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-foreground">
+                                {svc.name}
+                              </div>
+
+                              {svc.duration && (
+                                <div className="text-xs text-muted-foreground">
+                                  {svc.duration}
+                                </div>
+                              )}
+                              <ServiceAddOnAvailability
+                                item={svc}
+                                firstDate={checkIn}
+                                lastDate={checkOut}
+                                catalog={activityInventory.catalog}
+                                occupied={activityInventory.occupied}
+                                selected={
+                                  selectedAddOns.includes(svc.id)
+                                    ? getSchedule(svc.id)
+                                    : undefined
+                                }
+                                loading={activityInventory.loading}
+                                error={activityInventory.error}
+                              />
                             </div>
 
-                            {svc.duration && (
-                              <div className="text-xs text-muted-foreground">
-                                {svc.duration}
-                              </div>
-                            )}
-                          </div>
-
-                          <span className="text-accent font-semibold text-sm flex-shrink-0">
-                            +₱
-                            {Number(svc.price || 0).toLocaleString()}
-                          </span>
-                        </label>
+                            <span className="text-accent font-semibold text-sm flex-shrink-0">
+                              +₱
+                              {Number(svc.price || 0).toLocaleString()}
+                            </span>
+                          </label>
+                          {selectedAddOns.includes(svc.id) && (
+                            <div className="px-3 pb-3">
+                              <p className="text-xs font-medium text-primary">
+                                Choose your service date and time
+                              </p>
+                              <ActivitySchedulePicker
+                                item={svc}
+                                value={getSchedule(svc.id)}
+                                onChange={(value) =>
+                                  setAddOnSchedules((previous) => ({
+                                    ...previous,
+                                    [svc.id]: value,
+                                  }))
+                                }
+                                catalog={activityInventory.catalog}
+                                occupied={activityInventory.occupied}
+                                loading={activityInventory.loading}
+                                error={activityInventory.error}
+                                minDate={checkIn}
+                                maxDate={checkOut}
+                                disabled={bookingAction.pending}
+                              />
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -988,6 +1044,12 @@ export default function BookingPage() {
                             <div className="flex items-start gap-3">
                               <input
                                 type="checkbox"
+                                disabled={
+                                  !isSelected &&
+                                  (activityInventory.loading ||
+                                    Boolean(activityInventory.error) ||
+                                    !activityEnabled(pkg))
+                                }
                                 checked={isSelected}
                                 onChange={() => toggleAddOn(packageId)}
                                 className="w-4 h-4 mt-1 accent-primary"
@@ -1057,6 +1119,20 @@ export default function BookingPage() {
                   </div>
                 )}
 
+                {activityInventory.error && (
+                  <p role="alert" className="text-xs text-red-700">
+                    {activityInventory.error}
+                  </p>
+                )}
+                {selectedAddOns.length > 0 && activityError && (
+                  <p role="status" className="text-xs text-amber-700">
+                    {activityError}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Activities without a configured schedule cannot be selected.
+                  Prices are per participant.
+                </p>
                 {addOnServices.length === 0 && packages.length === 0 && (
                   <div className="py-5 text-center">
                     <p className="text-sm text-muted-foreground">
@@ -1067,6 +1143,38 @@ export default function BookingPage() {
               </div>
             )}
           </div>
+
+          {selectedAddOns.some((id) => id.startsWith("package-")) && (
+            <div className="rounded-2xl border border-border bg-white p-5">
+              <h2 className="text-sm font-semibold">Selected packages</h2>
+              {selectedAddOns
+                .filter((id) => id.startsWith("package-"))
+                .map((id) => {
+                  const item = activityInventory.catalog.find(
+                    (item) =>
+                      item.itemType === "package" && item.id === id.slice(8),
+                  );
+                  return item ? (
+                    <div key={id} className="mt-4">
+                      <p className="text-sm font-medium">{item.name}</p>
+                      <PackageBookingFields
+                        name={item.name}
+                        value={getSchedule(id)}
+                        onChange={(value) =>
+                          setAddOnSchedules((previous) => ({
+                            ...previous,
+                            [id]: value,
+                          }))
+                        }
+                        minDate={checkIn}
+                        disabled={bookingAction.pending}
+                        showDate={false}
+                      />
+                    </div>
+                  ) : null;
+                })}
+            </div>
+          )}
 
           <div className="bg-white rounded-2xl border border-border p-5">
             <h2
@@ -1147,11 +1255,15 @@ export default function BookingPage() {
 
               <div className="flex items-center gap-2 text-xs text-muted-foreground mb-4 p-2.5 bg-secondary rounded-xl">
                 <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" />
-                Pending and confirmed bookings can be cancelled from Booking History.
+                {CANCELLATION_POLICY}
               </div>
 
               <button
-                disabled={checkingAvailability || availableRooms <= 0}
+                disabled={
+                  checkingAvailability ||
+                  availableRooms <= 0 ||
+                  Boolean(activityError)
+                }
                 onClick={async () => {
                   if (!arrivalTime) {
                     alert("Please select your estimated time of arrival.");
@@ -1164,6 +1276,10 @@ export default function BookingPage() {
                     return;
                   }
 
+                  if (activityError) {
+                    alert(activityError);
+                    return;
+                  }
                   setStep("confirm");
                 }}
                 className={`w-full font-semibold py-3.5 rounded-xl transition-colors text-sm ${

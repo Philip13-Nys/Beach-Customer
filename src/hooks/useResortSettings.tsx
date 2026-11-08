@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../app/components/firebase";
+import { DEFAULT_STAY_TIMES, isStayTime } from "../app/utils/stayTimes";
 
 export interface ResortFeature {
   title: string;
@@ -26,8 +27,7 @@ const DEFAULT_SETTINGS: ResortSettings = {
   address: "",
   phone: "",
   email: "",
-  checkInTime: "14:00",
-  checkOutTime: "11:00",
+  ...DEFAULT_STAY_TIMES,
   frontDeskHours: "24/7",
   features: [
     {
@@ -56,6 +56,7 @@ const DEFAULT_SETTINGS: ResortSettings = {
 export function useResortSettings() {
   const [settings, setSettings] = useState<ResortSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const settingsRef = doc(db, "publicSettings", "general");
@@ -63,6 +64,7 @@ export function useResortSettings() {
     const unsubscribe = onSnapshot(
       settingsRef,
       (snapshot) => {
+        setError("");
         if (!snapshot.exists()) {
           setSettings(DEFAULT_SETTINGS);
           setLoading(false);
@@ -108,15 +110,13 @@ export function useResortSettings() {
 
           email: typeof data.email === "string" ? data.email : "",
 
-          checkInTime:
-            typeof data.checkInTime === "string"
-              ? data.checkInTime
-              : DEFAULT_SETTINGS.checkInTime,
+          checkInTime: isStayTime(data.checkInTime)
+            ? data.checkInTime
+            : DEFAULT_SETTINGS.checkInTime,
 
-          checkOutTime:
-            typeof data.checkOutTime === "string"
-              ? data.checkOutTime
-              : DEFAULT_SETTINGS.checkOutTime,
+          checkOutTime: isStayTime(data.checkOutTime)
+            ? data.checkOutTime
+            : DEFAULT_SETTINGS.checkOutTime,
 
           frontDeskHours:
             typeof data.frontDeskHours === "string"
@@ -130,6 +130,9 @@ export function useResortSettings() {
       },
       (error) => {
         console.error("Failed to load public resort settings:", error);
+        setError(
+          "Unable to load resort stay times. Please refresh and try again.",
+        );
         setLoading(false);
       },
     );
@@ -137,5 +140,5 @@ export function useResortSettings() {
     return unsubscribe;
   }, []);
 
-  return { settings, loading };
+  return { settings, loading, error };
 }

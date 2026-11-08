@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useApp } from "../context/AppContext";
 import { getPaymentSummary } from "../utils/payment";
+import { validPaymentReference } from "../utils/paymentReference";
+import { requireVerifiedCustomer } from "../services/emailVerification";
 import {
   Smartphone,
   CheckCircle2,
@@ -191,11 +193,9 @@ export default function Payment() {
   const total = Number(target?.totalPrice ?? 0);
   const amountPaid = Number(target?.amountPaid ?? 0);
 
-
   const reservationFee = Number(target?.reservationFee ?? 0);
   const reservationFeePercent = Number(target?.reservationFeePercent ?? 0);
   const subtotal = Number(target?.subtotal ?? total - reservationFee);
-
 
   const formatPeso = (amount: number) =>
     `₱${amount.toLocaleString("en-PH", {
@@ -266,7 +266,9 @@ export default function Payment() {
     }
 
     if (!validAmounts) {
-      setError("This booking has invalid payment amounts. Please contact the resort.");
+      setError(
+        "This booking has invalid payment amounts. Please contact the resort.",
+      );
       return;
     }
 
@@ -277,9 +279,9 @@ export default function Payment() {
 
     const cleanReference = referenceNumber.trim();
 
-    if (!/^[a-zA-Z0-9-]{6,30}$/.test(cleanReference)) {
+    if (!validPaymentReference(cleanReference)) {
       setError(
-        "Enter a valid GCash reference number (6–30 letters, numbers, or hyphens).",
+        "Enter the 10–20 digit GCash reference number from your receipt.",
       );
       return;
     }
@@ -288,6 +290,7 @@ export default function Payment() {
     setProcessing(true);
 
     try {
+      await requireVerifiedCustomer();
       const paymentRef = doc(collection(customerDb, "Payments"));
       const bookingRef = doc(customerDb, "Bookings", target.id);
 
@@ -379,7 +382,12 @@ export default function Payment() {
     }
   };
 
-  if (authLoading) return <p role="status" className="py-12 text-center">Loading your account...</p>;
+  if (authLoading)
+    return (
+      <p role="status" className="py-12 text-center">
+        Loading your account...
+      </p>
+    );
   if (!user) {
     return null;
   }
@@ -439,8 +447,8 @@ export default function Payment() {
           </h1>
 
           <p className="text-muted-foreground text-sm mb-6">
-            Your payment details have been submitted. The resort must
-            verify your GCash transaction before your payment is accepted.
+            Your payment details have been submitted. The resort must verify
+            your GCash transaction before your payment is accepted.
           </p>
         </div>
 
@@ -536,7 +544,10 @@ export default function Payment() {
       </p>
 
       {paymentStatus === "pending_verification" && (
-        <p role="status" className="mb-6 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
+        <p
+          role="status"
+          className="mb-6 rounded-xl bg-amber-50 p-4 text-sm text-amber-800"
+        >
           Your payment is awaiting verification. Please wait for the resort to
           review it before submitting another payment.
         </p>
@@ -661,23 +672,20 @@ export default function Payment() {
                     <input
                       id="referenceNumber"
                       type="text"
-                      placeholder="Enter your transaction reference"
+                      inputMode="numeric"
+                      placeholder="Enter the 10–20 digit reference number"
                       value={referenceNumber}
-                      onChange={(e) =>
-                        setReferenceNumber(
-                          e.target.value
-                            .replace(/[^a-zA-Z0-9-]/g, "")
-                            .slice(0, 30),
-                        )
-                      }
+                      onChange={(e) => setReferenceNumber(e.target.value)}
                       className={inputClass}
-                      maxLength={30}
+                      maxLength={20}
+                      minLength={10}
+                      pattern="[0-9]{10,20}"
                       required
                     />
 
                     <p className="text-xs text-muted-foreground mt-2">
-                      Enter the reference number shown on your actual GCash
-                      receipt.
+                      Enter the 10–20 digit reference number from your GCash
+                      receipt, without letters or symbols.
                     </p>
                   </div>
                 </>
@@ -694,6 +702,7 @@ export default function Payment() {
               type="submit"
               disabled={
                 processing ||
+                !validPaymentReference(referenceNumber) ||
                 bookingLoading ||
                 settingsLoading ||
                 !settings?.isEnabled ||
@@ -796,13 +805,17 @@ export default function Payment() {
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Amount Paid (Verified)</span>
+                  <span className="text-muted-foreground">
+                    Amount Paid (Verified)
+                  </span>
                   <span>{formatPeso(amountPaid)}</span>
                 </div>
 
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">
-                    {isBalancePayment ? "Balance Payment" : `Down Payment (${percent}%)`}
+                    {isBalancePayment
+                      ? "Balance Payment"
+                      : `Down Payment (${percent}%)`}
                   </span>
                   <span>{formatPeso(amountDue)}</span>
                 </div>
@@ -821,8 +834,9 @@ export default function Payment() {
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Balance after this payment is verified: {formatPeso(balanceAfterVerification)}.
-                Your current balance changes only after verification.
+                Balance after this payment is verified:{" "}
+                {formatPeso(balanceAfterVerification)}. Your current balance
+                changes only after verification.
               </p>
 
               <div className="bg-amber-50 text-amber-800 rounded-xl p-3 text-xs leading-relaxed">

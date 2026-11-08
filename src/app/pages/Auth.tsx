@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import TurnstileWidget from "../components/TurnstileWidget";
 import { verifyTurnstile } from "../components/verifyTurnstile";
+import { normalizePhilippineMobile, VERIFICATION_MESSAGE } from "../utils/registration";
+import { resendVerification, verificationCooldown } from "../services/emailVerification";
 
 const DEFAULT_RESORT_NAME = "Sabang Beach and Diving Resort";
 const PASSWORD_POLICY_HINT =
@@ -30,6 +32,7 @@ export default function Auth() {
   const [turnstileToken, setTurnstileToken] = useState("");
   const [verificationAttempt, setVerificationAttempt] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
   const submittingRef = useRef(false);
   const [showTerms, setShowTerms] = useState(false);
 
@@ -47,9 +50,17 @@ export default function Auth() {
 
   const [loginError, setLoginError] = useState("");
   const [registerError, setRegisterError] = useState("");
+  const [verificationMessage, setVerificationMessage] = useState("");
+  const [resendSeconds, setResendSeconds] = useState(0);
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  useEffect(() => {
+    const update = () => setResendSeconds(verificationCooldown(loginEmail));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [loginEmail]);
 
   const [forgotPassword, setForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
@@ -335,6 +346,8 @@ export default function Auth() {
     e.preventDefault();
 
     setRegisterError("");
+    try { normalizePhilippineMobile(form.phone); }
+    catch (error) { setRegisterError((error as Error).message); return; }
 
     if (
       !form.firstName.trim() ||
@@ -408,7 +421,7 @@ export default function Auth() {
         setRegisterError("");
 
         alert(
-          "Account created successfully! Please check your email and click the verification link before signing in.",
+          VERIFICATION_MESSAGE,
         );
 
         setForm({
@@ -425,6 +438,10 @@ export default function Auth() {
       }
     } catch (error: any) {
       console.error("Registration error:", error);
+      if (error.code === "auth/too-many-requests") {
+        setRegisterError("Firebase temporarily limited verification emails. If your account was created, use Resend verification email on the sign-in page after waiting a few minutes.");
+        return;
+      }
 
       if (error.code === "auth/email-already-in-use") {
         setRegisterError(
@@ -455,7 +472,12 @@ export default function Auth() {
 
   const handleGoogleRegister = async () => {
     setRegisterError("");
-
+    try { normalizePhilippineMobile(form.phone); }
+    catch (error) { setRegisterError((error as Error).message); return; }
+    if (!form.termsAccepted) {
+      setRegisterError("Please agree to the Terms of Service and acknowledge the Privacy Policy to create an account.");
+      return;
+    }
     if (!form.phone.trim()) {
       setRegisterError("Please enter your phone number.");
       return;
@@ -750,6 +772,21 @@ export default function Auth() {
                     {loginError}
                   </div>
                 )}
+                {verificationMessage && <p role="status" className="rounded-xl bg-blue-50 p-3 text-xs text-primary">{verificationMessage}</p>}
+                <button type="button" disabled={submitting || resendSeconds > 0}
+                  className="text-xs text-primary text-left hover:underline disabled:opacity-50"
+                  onClick={async () => {
+                    if (submittingRef.current) return;
+                    submittingRef.current = true;
+                    setSubmitting(true);
+                    setResending(true);
+                    setVerificationMessage("");
+                    try { setVerificationMessage(await resendVerification(loginEmail, loginPassword)); }
+                    catch (error: any) { setLoginError(error.code === "auth/too-many-requests" ? "Too many verification requests. Please wait a few minutes and try again." : error.code?.startsWith("auth/") ? "Unable to resend verification. Check your email and password, then try again." : error.message); }
+                    finally { submittingRef.current = false; setSubmitting(false); setResending(false); setResendSeconds(verificationCooldown(loginEmail)); }
+                  }}>
+                  {resending ? "Sending verification email..." : resendSeconds ? `Resend verification email in ${resendSeconds}s` : "Resend verification email"}
+                </button>
 
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1.5">
@@ -827,7 +864,7 @@ export default function Auth() {
                 aria-busy={submitting}
                   className="w-full bg-primary text-white py-3 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
                 >
-                  {submitting ? "Signing in..." : "Sign In"}
+                  {submitting && !resending ? "Signing in..." : "Sign In"}
                 </button>
 
                 <div className="relative my-4">
@@ -990,7 +1027,11 @@ export default function Auth() {
 
                 <input
                   type="tel"
-                  placeholder="+63 9XX XXX XXXX"
+                  placeholder="09171234567 or +639171234567"
+                  inputMode="tel"
+                  maxLength={13}
+                  pattern="(09[0-9]{9}|\+639[0-9]{9})"
+                  title="Use 09171234567 or +639171234567 without spaces."
                   value={form.phone}
                   onChange={(e) =>
                     setForm((f) => ({

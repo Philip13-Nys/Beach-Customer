@@ -1,4 +1,5 @@
 import { useAsyncAction } from "../../hooks/useAsyncAction";
+import { normalizePhilippineMobile } from "../utils/registration";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useApp } from "../context/AppContext";
@@ -167,7 +168,12 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     }
   }, [user, authLoading, navigate]);
 
-  if (authLoading) return <p role="status" className="py-12 text-center">Loading your account...</p>;
+  if (authLoading)
+    return (
+      <p role="status" className="py-12 text-center">
+        Loading your account...
+      </p>
+    );
   if (!user) {
     return null;
   }
@@ -305,8 +311,10 @@ function ProfileContent() {
 
   const totalBookings = bookings.length;
 
-  const pendingBookings = bookings.filter(
-    (booking) => normalizeStatus(booking.status) === "pending",
+  const pendingBookings = bookings.filter((booking) =>
+    ["pending", "pending-payment-verification"].includes(
+      normalizeStatus(booking.status),
+    ),
   ).length;
 
   const completedBookings = bookings.filter(isCompletedBooking).length;
@@ -332,7 +340,13 @@ function ProfileContent() {
 
     const email = form.email.trim().toLowerCase();
 
-    const phone = form.phone.trim();
+    let phone = form.phone.trim();
+    try {
+      phone = normalizePhilippineMobile(phone);
+    } catch (error) {
+      setProfileError((error as Error).message);
+      return;
+    }
 
     if (!firstName || !lastName || !email) {
       setProfileError("First name, last name, and email are required.");
@@ -810,13 +824,15 @@ function ProfileContent() {
                 type="button"
                 disabled={logoutAction.pending}
                 aria-busy={logoutAction.pending}
-                onClick={() => logoutAction.run(async () => {
-                  await logout();
+                onClick={() =>
+                  logoutAction.run(async () => {
+                    await logout();
 
-                  navigate("/", {
-                    replace: true,
-                  });
-                })}
+                    navigate("/", {
+                      replace: true,
+                    });
+                  })
+                }
                 className="w-full text-left px-4 py-2.5 rounded-xl text-sm font-medium text-destructive hover:bg-red-50 transition-colors flex items-center gap-2"
               >
                 <LogOut className="w-4 h-4" />

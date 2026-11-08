@@ -1,0 +1,130 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function activeAccount() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/Users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.get('disabled', false) != true
+        && !(get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.get('accountStatus', '').lower() in ['disabled', 'suspended', 'deleted'])
+        && !(get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.get('status', '').lower() in ['disabled', 'suspended', 'deleted']);
+    }
+    function accountRole() { return get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.get('role', '').lower(); }
+    function quantityManager() { return activeAccount() && accountRole() in ['administrator', 'admin', 'manager']; }
+    function reservationOperator() { return activeAccount() && accountRole() in ['administrator', 'admin', 'manager', 'receptionist']; }
+    function administrator() { return activeAccount() && accountRole() in ['administrator', 'admin']; }
+    function validAvailability(data) {
+      return !('availability' in data) || (
+        data.availability is map
+        && data.availability.keys().hasAll(['capacity', 'durationMinutes', 'opensAt', 'closesAt', 'days'])
+        && data.availability.keys().hasOnly(['capacity', 'durationMinutes', 'opensAt', 'closesAt', 'days', 'capacityType', 'participantsPerUnit'])
+        && data.availability.capacity is int && data.availability.capacity >= 0 && data.availability.capacity <= 10000
+        && data.availability.durationMinutes is int && data.availability.durationMinutes >= 1 && data.availability.durationMinutes <= 1440
+        && data.availability.opensAt is string && data.availability.opensAt.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && data.availability.closesAt is string && data.availability.closesAt.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && data.availability.opensAt < data.availability.closesAt
+        && data.availability.days is list && data.availability.days.size() > 0 && data.availability.days.size() <= 7
+        && data.availability.days.hasOnly([0,1,2,3,4,5,6])
+        && data.availability.get('capacityType', 'participants') in ['participants','units']
+        && (data.availability.get('capacityType','participants') != 'units' || (data.availability.get('participantsPerUnit',0) is int && data.availability.participantsPerUnit >= 1 && data.availability.participantsPerUnit <= 10000))
+      );
+    }
+
+
+    match /roomTypes/{id} {
+     allow read: if true;
+ 		 allow create: if request.auth != null;
+ 		 allow update: if request.auth != null;
+		 allow delete: if request.auth != null;
+    }
+   match /rooms/{roomId} {
+ 		 allow read: if true;
+ 		 allow create: if request.auth != null;
+ 		 allow update: if request.auth != null;
+		 allow delete: if request.auth != null;
+		}
+    match /services/{id} {
+      allow read: if true;
+      allow create, update: if quantityManager() && validAvailability(request.resource.data);
+      allow delete: if quantityManager();
+    }
+    match /packages/{id} {
+      allow read: if true;
+      allow create, update: if quantityManager();
+      allow delete: if quantityManager();
+    }
+    match /pricingRules/{id} {
+      allow read: if true;
+      allow write: if request.app != null;
+    }
+   match /reservations/{reservationId} {
+  		allow read: if true;
+  		allow create: if true;
+  		allow update: if true;
+    	allow delete: if false;
+		}
+
+    match /Bookings/{id} {
+      allow read: if true;
+      allow write: if request.app != null;
+    }
+    match /Reviews/{id} {
+      allow read: if true;
+      allow write: if request.app != null;
+    }
+    match /Payments/{id} {
+      allow read: if true;
+      allow write: if request.app != null;
+    }
+    match /Notifications/{id} {
+      allow read: if true;
+      allow write: if request.app != null;
+    }
+    match /maintenanceRequests/{requestId} {
+  		allow read, write: if request.auth != null;
+		}
+    // Preserve the old fallback for unrelated collections only.
+    match /{collection}/{document=**} {
+      allow read, write: if !(collection in ['services','packages','BookingLocks','Users']);
+    }
+    match /Users/{userId} {
+      allow read: if true;
+      allow create: if administrator();
+      allow update: if (administrator() && (userId != request.auth.uid || (
+        request.resource.data.role == resource.data.role
+        && request.resource.data.get('disabled',false) != true
+        && !(request.resource.data.get('status','').lower() in ['disabled','suspended','deleted'])
+        && !(request.resource.data.get('accountStatus','').lower() in ['disabled','suspended','deleted'])
+      ))) || (activeAccount() && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','lastActive'])
+        && request.resource.data.status in ['Active','Inactive']);
+      allow delete: if administrator() && request.auth.uid != userId;
+      // A collection segment is required: this cannot match the parent profile.
+      match /{subcollection}/{nested=**} {
+        allow read, write: if request.auth != null && (request.auth.uid == userId || administrator());
+      }
+    }
+    match /BookingLocks/{lockId} {
+      allow get: if true;
+      allow list: if reservationOperator();
+      allow create, update: if reservationOperator()
+        && request.resource.data.revision is int
+        && request.resource.data.revision == (exists(/databases/$(database)/documents/BookingLocks/$(lockId)) ? resource.data.revision + 1 : 1)
+        && request.resource.data.updatedAt == request.time
+        && (lockId == 'activityInventory' ? (
+          request.resource.data.keys().hasOnly(['revision','updatedAt','allocations']) && request.resource.data.allocations is map
+        ) : request.resource.data.keys().hasOnly(['revision','updatedAt']));
+      allow delete: if administrator() && (lockId != 'activityInventory' || resource.data.allocations.size() == 0);
+    }
+
+    match /Inquiries/{inquiryId} {
+        allow read, update: if request.auth != null;
+        allow create: if request.auth != null;
+        allow delete: if request.auth != null;
+
+    match /replies/{replyId} {
+       allow read, create: if request.auth != null;
+       allow update, delete: if request.auth != null;
+    }
+   }
+  }
+}

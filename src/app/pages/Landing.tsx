@@ -1,3 +1,8 @@
+import {
+  remainingRooms,
+  mergeAvailabilityBookings,
+} from "../utils/availability";
+import { useAvailabilityRecords } from "../../hooks/useRoomAvailability";
 import { useActivityReviews } from "../../hooks/useActivityReviews";
 import { activityRating } from "../utils/bookingPresentation";
 import { ActivityRating } from "../components/ActivityRating";
@@ -207,107 +212,6 @@ const isCancelledBooking = (status = "") =>
     normalize(status),
   );
 
-const isRoomBookable = (room: FirestoreRoom): boolean => {
-  if (room.isAvailable === false) return false;
-
-  return ![
-    "maintenance",
-    "inactive",
-    "deleted",
-    "unavailable",
-    "out of service",
-    "out-of-service",
-  ].includes(normalize(room.status));
-};
-
-const isRoomBooking = (booking: FirestoreBooking): boolean => {
-  const type = normalize(booking.bookingType || booking.itemType);
-
-  if (
-    ["service", "package", "activity"].includes(type) ||
-    booking.serviceId ||
-    booking.packageId
-  ) {
-    return false;
-  }
-
-  if (booking.bookingDate && !booking.checkIn && !booking.checkOut) {
-    return false;
-  }
-
-  return Boolean(booking.checkIn && booking.checkOut);
-};
-
-const getRoomTypeKeys = (roomType: Room): string[] =>
-  [roomType.id, roomType.name].map(normalize).filter(Boolean);
-
-const matchesRoomType = (
-  record: Record<string, unknown>,
-  roomType: Room,
-): boolean => {
-  const keys = getRoomTypeKeys(roomType);
-
-  const values = [
-    record.roomTypeId,
-    record.typeId,
-    record.roomType,
-    record.roomTypeName,
-    record.typeName,
-    record.roomName,
-    record.room,
-    record.type,
-  ]
-    .map(normalize)
-    .filter(Boolean);
-
-  return values.some((value) => keys.includes(value));
-};
-
-const getInventoryCount = (
-  roomType: Room,
-  inventoryRooms: FirestoreRoom[],
-): number => {
-  const matchingRooms = inventoryRooms.filter((room) =>
-    matchesRoomType(room, roomType),
-  );
-
-  if (matchingRooms.length > 0) {
-    return matchingRooms.filter(isRoomBookable).length;
-  }
-
-  return Math.max(
-    0,
-    Number(roomType.count ?? roomType.quantity ?? roomType.totalRooms ?? 0) ||
-      0,
-  );
-};
-
-const getBookedCount = (
-  roomType: Room,
-  bookings: FirestoreBooking[],
-  date: string,
-): number =>
-  bookings.reduce((total, booking) => {
-    if (isCancelledBooking(String(booking.status ?? ""))) return total;
-    if (!isRoomBooking(booking)) return total;
-    if (!matchesRoomType(booking, roomType)) return total;
-
-    const checkInDate = getDateOnly(booking.checkIn);
-    const checkOutDate = getDateOnly(booking.checkOut);
-
-    if (!checkInDate || !checkOutDate) return total;
-    if (!(checkInDate <= date && checkOutDate > date)) return total;
-
-    const rawQuantity =
-      booking.roomQuantity ?? booking.roomsBooked ?? booking.quantity ?? 1;
-
-    const quantity = Number(rawQuantity);
-    const roomsBooked =
-      Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
-
-    return total + roomsBooked;
-  }, 0);
-
 const isRoomTypeAvailableForStay = (
   roomType: Room,
   inventoryRooms: FirestoreRoom[],
@@ -322,36 +226,14 @@ const isRoomTypeAvailableForStay = (
     return false;
   }
 
-  const inventoryCount = getInventoryCount(roomType, inventoryRooms);
-  if (inventoryCount <= 0) return false;
-
-  const cursor = new Date(`${checkIn}T00:00:00`);
-  const end = new Date(`${checkOut}T00:00:00`);
-
-  if (
-    Number.isNaN(cursor.getTime()) ||
-    Number.isNaN(end.getTime()) ||
-    end <= cursor
-  ) {
-    return false;
-  }
-
-  while (cursor < end) {
-    if (
-      inventoryCount -
-        getBookedCount(roomType, bookings, toLocalDateString(cursor)) <=
-      0
-    ) {
-      return false;
-    }
-
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  return true;
+  return (
+    remainingRooms(roomType, inventoryRooms, bookings, [], checkIn, checkOut) >
+    0
+  );
 };
 
 const mapRoomType = (id: string, data: Record<string, unknown>): Room => ({
+  ...data,
   id,
   name: String(
     data.name ?? data.roomTypeName ?? data.typeName ?? data.title ?? "",
@@ -376,11 +258,6 @@ const mapInventoryRoom = (
   data: Record<string, unknown>,
 ): FirestoreRoom => ({ ...data, id }) as FirestoreRoom;
 
-const mapBooking = (
-  id: string,
-  data: Record<string, unknown>,
-): FirestoreBooking => ({ ...data, id }) as FirestoreBooking;
-
 export default function Landing() {
   const activityReviews = useActivityReviews();
   const navigate = useNavigate();
@@ -401,10 +278,16 @@ export default function Landing() {
   );
   const [services, setServices] = useState<Service[]>([]);
   const reviews = activityReviews.reviews as Review[];
-  const [inventoryRooms, setInventoryRooms] = useState<FirestoreRoom[]>([]);
-  const [bookings, setBookings] = useState<FirestoreBooking[]>([]);
+  const liveInventory = useAvailabilityRecords();
+  const inventoryRooms = liveInventory.rooms as FirestoreRoom[];
+  const bookings = mergeAvailabilityBookings(
+    liveInventory.bookings,
+    liveInventory.reservations,
+  ) as FirestoreBooking[];
 
-  const [calendarDataLoading, setCalendarDataLoading] = useState(true);
+  const [landingDataLoading, setCalendarDataLoading] = useState(true);
+  const calendarDataLoading =
+    landingDataLoading || liveInventory.loading || Boolean(liveInventory.error);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
 
@@ -457,16 +340,9 @@ export default function Landing() {
 
     async function loadLandingData() {
       try {
-        const [
-          roomTypesSnapshot,
-          servicesSnapshot,
-          inventorySnapshot,
-          bookingsSnapshot,
-        ] = await Promise.all([
+        const [roomTypesSnapshot, servicesSnapshot] = await Promise.all([
           getDocs(collection(db, "roomTypes")),
           getDocs(collection(db, "services")),
-          getDocs(collection(db, "rooms")),
-          getDocs(collection(customerDb, "Bookings")),
         ]);
 
         if (!isMounted) return;
@@ -491,21 +367,6 @@ export default function Landing() {
               duration: String(data.duration ?? ""),
             };
           }),
-        );
-
-        setInventoryRooms(
-          inventorySnapshot.docs.map((docSnap) =>
-            mapInventoryRoom(
-              docSnap.id,
-              docSnap.data() as Record<string, unknown>,
-            ),
-          ),
-        );
-
-        setBookings(
-          bookingsSnapshot.docs.map((docSnap) =>
-            mapBooking(docSnap.id, docSnap.data() as Record<string, unknown>),
-          ),
         );
       } catch (error) {
         console.error("Error loading landing page data:", error);
@@ -588,12 +449,17 @@ export default function Landing() {
     setCheckingAvailability(true);
 
     try {
-      const [roomTypesSnapshot, inventorySnapshot, bookingsSnapshot] =
-        await Promise.all([
-          getDocs(collection(db, "roomTypes")),
-          getDocs(collection(db, "rooms")),
-          getDocs(collection(customerDb, "Bookings")),
-        ]);
+      const [
+        roomTypesSnapshot,
+        inventorySnapshot,
+        bookingsSnapshot,
+        reservationsSnapshot,
+      ] = await Promise.all([
+        getDocs(collection(db, "roomTypes")),
+        getDocs(collection(db, "rooms")),
+        getDocs(collection(customerDb, "Bookings")),
+        getDocs(collection(db, "reservations")),
+      ]);
 
       const currentRoomTypes = roomTypesSnapshot.docs.map((docSnap) =>
         mapRoomType(docSnap.id, docSnap.data() as Record<string, unknown>),
@@ -603,13 +469,12 @@ export default function Landing() {
         mapInventoryRoom(docSnap.id, docSnap.data() as Record<string, unknown>),
       );
 
-      const currentBookings = bookingsSnapshot.docs.map((docSnap) =>
-        mapBooking(docSnap.id, docSnap.data() as Record<string, unknown>),
-      );
+      const currentBookings = mergeAvailabilityBookings(
+        bookingsSnapshot.docs.map((d) => ({ ...d.data(), id: d.id })),
+        reservationsSnapshot.docs.map((d) => ({ ...d.data(), id: d.id })),
+      ) as FirestoreBooking[];
 
       setAvailabilityRoomTypes(currentRoomTypes);
-      setInventoryRooms(currentInventory);
-      setBookings(currentBookings);
 
       const availableRoomTypeIds = currentRoomTypes
         .filter((roomType) =>
@@ -863,10 +728,20 @@ export default function Landing() {
                             }
 
                             return (
-                              roomType.available !== false &&
-                              getInventoryCount(roomType, inventoryRooms) -
-                                getBookedCount(roomType, bookings, dateString) >
-                                0
+                              remainingRooms(
+                                roomType,
+                                inventoryRooms,
+                                bookings,
+                                [],
+                                dateString,
+                                toLocalDateString(
+                                  new Date(
+                                    calendarMonth.getFullYear(),
+                                    calendarMonth.getMonth(),
+                                    day + 1,
+                                  ),
+                                ),
+                              ) > 0
                             );
                           },
                         ).length;
@@ -964,9 +839,9 @@ export default function Landing() {
                   </select>
                 </div>
 
-                {availabilityError && (
+                {(availabilityError || liveInventory.error) && (
                   <p className="mt-3 text-sm text-red-600" role="alert">
-                    {availabilityError}
+                    {availabilityError || liveInventory.error}
                   </p>
                 )}
 
@@ -1068,7 +943,10 @@ export default function Landing() {
 
             const ratings = roomReviews
               .map((review) => Number(review.rating))
-              .filter((rating) => Number.isInteger(rating) && rating >= 1 && rating <= 5);
+              .filter(
+                (rating) =>
+                  Number.isInteger(rating) && rating >= 1 && rating <= 5,
+              );
 
             const roomAverage =
               ratings.length > 0

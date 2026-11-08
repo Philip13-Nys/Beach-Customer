@@ -11,9 +11,14 @@ import {
 import { cancellationReason, isCompletedBooking } from "../utils/bookingPolicy";
 import { bookingKind, bookingReviewFields } from "../utils/bookingPresentation";
 
-export async function cancelCustomerBooking(id: string) {
+export async function cancelCustomerBooking(id: string, remarks: string) {
   const customer = auth.currentUser;
   if (!customer) throw new Error("Please log in before cancelling a booking.");
+  const cancellationRemarks = String(remarks || "").trim();
+  if (cancellationRemarks.length < 5 || cancellationRemarks.length > 1000)
+    throw new Error(
+      "Please provide a cancellation reason of 5–1,000 characters.",
+    );
   await runTransaction(customerDb, async (transaction) => {
     const ref = doc(customerDb, "Bookings", id);
     const snapshot = await transaction.get(ref);
@@ -21,11 +26,40 @@ export async function cancelCustomerBooking(id: string) {
     const booking = snapshot.data();
     if (booking.userId !== customer.uid)
       throw new Error("You can only cancel your own bookings.");
+    const auditRef = doc(
+      customerDb,
+      "Users",
+      customer.uid,
+      "bookingCancellations",
+      id,
+    );
+    if (
+      booking.status === "cancelled" &&
+      booking.cancelledByUid === customer.uid
+    ) {
+      const audit = await transaction.get(auditRef);
+      if (
+        audit.exists() &&
+        audit.data().cancellationReason === cancellationRemarks
+      )
+        return;
+    }
     const reason = cancellationReason(booking);
     if (reason) throw new Error(reason);
     transaction.update(ref, {
       status: "cancelled",
       cancelledAt: serverTimestamp(),
+      cancelledByUid: customer.uid,
+    });
+    // Availability currently reads Bookings publicly. Keep personal remarks
+    // and actor contact information in an owner/staff-only audit document.
+    transaction.set(auditRef, {
+      bookingId: id,
+      userId: customer.uid,
+      cancellationReason: cancellationRemarks,
+      cancelledAt: serverTimestamp(),
+      cancelledByUid: customer.uid,
+      cancelledBy: customer.email || customer.uid,
     });
   });
 }

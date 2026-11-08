@@ -20,6 +20,8 @@ function compile(path, mocks = {}, globals = {}) {
         return mocks[name];
       },
       console: { error() {} },
+      setInterval: () => 0,
+      clearInterval() {},
       ...globals,
     },
   );
@@ -137,6 +139,8 @@ function paymentHarness(booking, { failCommit = false } = {}) {
     },
     "../context/AppContext": { useApp: () => app },
     "../utils/payment": helpers,
+    "../utils/paymentReference": compile("../src/app/utils/paymentReference.ts"),
+    "../services/emailVerification": { requireVerifiedCustomer: async () => ({ uid: "customer" }) },
     "../utils/bookingPresentation": bookingPresentation,
     "../utils/bookingPolicy": compile("../src/app/utils/bookingPolicy.ts", { "./bookingPresentation": bookingPresentation }),
     "../services/customerBookings": {},
@@ -169,7 +173,7 @@ function paymentHarness(booking, { failCommit = false } = {}) {
     isEnabled: true,
   };
   state[3] = false;
-  state[4] = "GC123456";
+  state[4] = "1234567890123";
   function nodes(node) {
     if (!node || typeof node !== "object") return [];
     return Array.isArray(node)
@@ -203,6 +207,9 @@ test("balance submission writes one pending payment atomically and preserves set
   assert.equal(harness.writes[0].data.amount, 2000);
   assert.equal(harness.writes[0].data.type, "balance");
   assert.equal(harness.writes[0].data.status, "pending");
+  assert.equal("proof" in harness.writes[0].data, false);
+  assert.equal("proofOfPayment" in harness.writes[0].data, false);
+  assert.equal(harness.nodes(harness.render()).some(node => node.type === "input" && node.props.type === "file"), false);
   const update = harness.writes[1].data;
   assert.equal(update.paymentStatus, "pending_verification");
   assert.equal(update.remainingBalance, 2000);

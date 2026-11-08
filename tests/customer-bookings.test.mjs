@@ -18,6 +18,7 @@ function serviceHarness(booking = {}) {
         status: "pending",
         checkIn: "2099-11-10",
         amountPaid: 5000,
+        createdAt: { seconds: Math.floor(Date.now() / 1000) - 172800 },
         ...booking,
       },
     ],
@@ -29,7 +30,7 @@ function serviceHarness(booking = {}) {
     collection: (db, name) => name,
     query: (base) => base,
     where: () => ({}),
-    doc: (db, name, id) => `${name}/${id}`,
+    doc: (db, ...segments) => segments.join("/"),
     getDocs: async () => ({
       docs: legacy.map((data) => ({ data: () => data })),
     }),
@@ -76,42 +77,29 @@ function serviceHarness(booking = {}) {
   };
 }
 
-test("cancellation eligibility depends on booking status, with no time cutoff", () => {
-  for (const checkIn of [
-    "2000-01-01",
-    new Date().toISOString().slice(0, 10),
-    "2099-11-10",
-    "",
-  ]) {
-    assert.equal(policy.cancellationReason({ status: "pending", checkIn }), "");
-    assert.equal(
-      policy.cancellationReason({
-        status: "confirmed",
-        checkIn,
-        itemType: "service",
-      }),
-      "",
-    );
-  }
-  assert.match(
-    policy.cancellationReason({ status: "checked-in" }),
-    /Only pending/,
-  );
+test("cancellation opens exactly 24 hours after creation and closes before Philippine check-in", () => {
+  const now = Date.parse("2026-11-08T12:00:00Z");
+  const base = { status: "pending", checkIn: "2026-11-10", createdAt: { seconds: (now - 86400000) / 1000 } };
+  assert.equal(policy.cancellationReason(base, now), "");
+  assert.match(policy.cancellationReason(base, now - 1), /24 hours/);
+  assert.match(policy.cancellationReason({ ...base, createdAt: null }, now), /could not be verified/);
+  assert.match(policy.cancellationReason({ ...base, checkIn: "2026-11-08" }, now), /before the check-in/);
+  assert.equal(policy.cancellationReason({ ...base, status: "pending-payment-verification" }, now), "");
+  assert.match(policy.cancellationReason({ ...base, status: "checked-in" }, now), /Only pending/);
 });
 
 test("cancellation preserves the booking and all financial fields", async () => {
   for (const fields of [
     { status: "pending" },
     { status: "confirmed" },
-    { status: "confirmed", checkIn: "2000-01-01" },
-    { status: "pending", checkIn: new Date().toISOString().slice(0, 10) },
+    { status: "pending-payment-verification" },
   ]) {
     const h = serviceHarness({
       ...fields,
       totalPrice: 10000,
       paymentStatus: "partial",
     });
-    await h.service.cancelCustomerBooking("b1");
+    await h.service.cancelCustomerBooking("b1", "Our travel plans have changed.");
     const saved = h.documents.get("Bookings/b1");
     assert.equal(saved.status, "cancelled");
     assert.equal(saved.amountPaid, 5000);
@@ -119,8 +107,15 @@ test("cancellation preserves the booking and all financial fields", async () => 
     assert.equal(saved.paymentStatus, "partial");
     assert.deepEqual(Object.keys(h.writes[0].data).sort(), [
       "cancelledAt",
+      "cancelledByUid",
       "status",
     ]);
+    assert.equal("cancellationReason" in saved, false);
+    const audit = h.documents.get("Users/customer/bookingCancellations/b1");
+    assert.equal(audit.cancellationReason, "Our travel plans have changed.");
+    assert.equal(audit.userId, "customer");
+    await h.service.cancelCustomerBooking("b1", "Our travel plans have changed.");
+    assert.equal(h.writes.length, 2, "A retried cancellation must not overwrite the audit or create another write.");
   }
 });
 
@@ -133,12 +128,12 @@ test("cancellation rejects another user's booking and non-cancellable states", a
     { status: "completed" },
   ]) {
     const h = serviceHarness(booking);
-    await assert.rejects(h.service.cancelCustomerBooking("b1"));
+    await assert.rejects(h.service.cancelCustomerBooking("b1", "Our travel plans have changed."));
     assert.equal(h.writes.length, 0);
   }
   const h = serviceHarness();
   h.auth.currentUser = null;
-  await assert.rejects(h.service.cancelCustomerBooking("b1"), /log in/);
+  await assert.rejects(h.service.cancelCustomerBooking("b1", "Our travel plans have changed."), /log in/);
 });
 
 test("review submission requires an owned completed booking and valid separate fields", async () => {

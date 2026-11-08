@@ -69,6 +69,7 @@ function harness(cancel = async () => {}) {
           totalPrice: 10000,
           amountPaid: 5000,
           paymentStatus: "partial",
+          createdAt: { seconds: Math.floor(Date.now() / 1000) - 172800 },
           ...data,
         }),
       })),
@@ -83,7 +84,7 @@ const buttons = (result, label) =>
       (node.props.children === label || node.props.children?.includes?.(label)),
   );
 
-test("history offers cancellation for pending/confirmed bookings without a time cutoff", () => {
+test("history offers cancellation for eligible statuses and disables past-date cancellation", () => {
   const h = harness();
   h.load([
     { status: "pending" },
@@ -96,7 +97,7 @@ test("history offers cancellation for pending/confirmed bookings without a time 
   const result = h.render(),
     cancel = buttons(result, "Cancel Booking");
   assert.equal(cancel.length, 3);
-  assert.equal(cancel.filter((button) => button.props.disabled).length, 0);
+  assert.equal(cancel.filter((button) => button.props.disabled).length, 1);
   assert.equal(
     result.some(
       (node) =>
@@ -121,6 +122,9 @@ test("cancellation requires confirmation, blocks repeated submits and displays s
   assert.equal(calls, 0);
   let result = h.render();
   assert.ok(result.some((node) => node.props.role === "dialog"));
+  assert.equal(buttons(result, "Yes, Cancel")[0].props.disabled, true);
+  result.find(node => node.type === "textarea").props.onChange({ target: { value: "Our travel plans have changed." } });
+  result = h.render();
   const confirm = buttons(result, "Yes, Cancel")[0];
   const pending = confirm.props.onClick();
   confirm.props.onClick();
@@ -145,6 +149,7 @@ test("failed cancellation preserves the booking and shows the error with a retry
   });
   h.load([{}]);
   buttons(h.render(), "Cancel Booking")[0].props.onClick();
+  h.render().find(node => node.type === "textarea").props.onChange({ target: { value: "Our plans have changed." } });
   await buttons(h.render(), "Yes, Cancel")[0].props.onClick();
   const result = h.render();
   assert.ok(

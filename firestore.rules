@@ -5,15 +5,57 @@ service cloud.firestore {
     // Staff authority must come from trusted Auth custom claims, never a client-editable Users field.
     function staff() { return signedIn() && request.auth.token.get('role', '') in ['admin', 'manager', 'receptionist']; }
     function owner(data) { return signedIn() && data.userId == request.auth.uid; }
+    function verified() { return signedIn() && request.auth.token.get('email_verified', false) == true; }
+    function dateTime(value) {
+      let parts = value.split('-');
+      return timestamp.date(int(parts[0]), int(parts[1]), int(parts[2])) - duration.value(8, 'h');
+    }
+    function checkInTime(data) { return dateTime(data.checkIn); }
     function completed(data) { return data.status.lower() in ['completed', 'checked-out', 'checked out', 'checked_out', 'checkedout', 'finished']; }
-    function validCancellation() {
-      return resource.data.status in ['pending', 'confirmed']
+    function validCancellation(bookingId) {
+      let audit = getAfter(/databases/$(database)/documents/Users/$(request.auth.uid)/bookingCancellations/$(bookingId)).data;
+      return resource.data.status in ['pending', 'pending-payment-verification', 'confirmed']
+        && resource.data.createdAt is timestamp
+        && request.time >= resource.data.createdAt + duration.value(24, 'h')
+        && request.time < checkInTime(resource.data)
         && request.resource.data.status == 'cancelled'
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancelledByUid'])
+        && request.resource.data.cancelledByUid == request.auth.uid
+        && audit.bookingId == bookingId && audit.userId == request.auth.uid && audit.cancelledAt == request.time
+        && audit.cancellationReason is string && audit.cancellationReason.size() >= 5 && audit.cancellationReason.size() <= 1000
         && request.resource.data.cancelledAt == request.time;
     }
     match /Users/{userId} {
-      allow read, write: if signedIn() && request.auth.uid == userId;
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId && request.resource.data.phone.matches('^[+]639[0-9]{9}$');
+      allow update: if signedIn() && request.auth.uid == userId
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['phone']) || request.resource.data.phone.matches('^[+]639[0-9]{9}$'));
+      allow delete: if false;
+      match /bookingCancellations/{bookingId} {
+        allow read: if staff() || (signedIn() && request.auth.uid == userId);
+        allow create: if signedIn() && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly(['bookingId', 'userId', 'cancellationReason', 'cancelledAt', 'cancelledByUid', 'cancelledBy'])
+          && request.resource.data.bookingId == bookingId && request.resource.data.userId == userId
+          && request.resource.data.cancellationReason is string
+          && request.resource.data.cancellationReason.size() >= 5 && request.resource.data.cancellationReason.size() <= 1000
+          && request.resource.data.cancelledByUid == request.auth.uid
+          && request.resource.data.cancelledBy == request.auth.token.get('email', request.auth.uid)
+          && request.resource.data.cancelledAt == request.time
+          && getAfter(/databases/$(database)/documents/Bookings/$(bookingId)).data.userId == userId
+          && getAfter(/databases/$(database)/documents/Bookings/$(bookingId)).data.status == 'cancelled'
+          && getAfter(/databases/$(database)/documents/Bookings/$(bookingId)).data.cancelledAt == request.time;
+        allow update, delete: if false;
+      }
+      match /bookingState/{stateId} {
+        allow read: if staff() || (signedIn() && request.auth.uid == userId);
+        allow create, update: if staff() || (signedIn() && request.auth.uid == userId && stateId == 'requests'
+          && request.resource.data.keys().hasOnly(['revision', 'bookingId', 'updatedAt'])
+          && request.resource.data.revision == (exists(/databases/$(database)/documents/Users/$(userId)/bookingState/requests) ? resource.data.revision + 1 : 1)
+          && request.resource.data.updatedAt == request.time
+          && !exists(/databases/$(database)/documents/Bookings/$(request.resource.data.bookingId))
+          && getAfter(/databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)).data.userId == userId);
+        allow delete: if false;
+      }
       match /chatSessions/{sessionId} {
         allow read: if signedIn() && request.auth.uid == userId;
         allow create, update: if signedIn() && request.auth.uid == userId
@@ -35,19 +77,81 @@ service cloud.firestore {
       }
     }
     match /Bookings/{bookingId} {
-      allow create: if owner(request.resource.data) && request.resource.data.status == 'pending'
-        && request.resource.data.get('amountPaid', 0) == 0 && request.resource.data.paymentStatus == 'unpaid';
+      function requestLock() {
+        let path = /databases/$(database)/documents/Users/$(request.auth.uid)/bookingState/requests;
+        return getAfter(path).data.bookingId == bookingId
+          && getAfter(path).data.revision == (exists(path) ? get(path).data.revision + 1 : 1)
+          && getAfter(path).data.updatedAt == request.time;
+      }
+      function initialPayment() {
+        let data = request.resource.data;
+        let payment = getAfter(/databases/$(database)/documents/Payments/$(data.paymentId)).data;
+        let rounded = math.ceil(data.totalPrice * data.downPaymentPercent / 100);
+        return data.paymentId == 'deposit-' + bookingId && payment.bookingId == bookingId
+          && payment.customerId == request.auth.uid && payment.status == 'pending' && payment.verificationStatus == 'pending'
+          && payment.amount == data.downPaymentAmount && payment.amount > 0 && payment.amount <= data.totalPrice
+          && data.downPaymentPercent is number && data.downPaymentPercent > 0 && data.downPaymentPercent <= 100
+          && data.downPaymentAmount == (rounded > data.totalPrice ? data.totalPrice : rounded);
+      }
+      function validDates() {
+        let data = request.resource.data;
+        let activity = data.get('bookingType', data.get('itemType', 'room')) in ['service', 'package', 'activity'];
+        return data.checkIn.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && data.checkOut.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && checkInTime(data) + duration.value(24, 'h') > request.time
+          && data.guests is int && data.guests >= 1 && data.guests <= 100
+          && (activity ? data.checkIn == data.checkOut && data.nights == 0
+            : data.roomCount == 1 && data.nights is int && data.nights > 0 && data.nights <= 365
+              && dateTime(data.checkOut) - checkInTime(data) == duration.value(data.nights, 'd'));
+      }
+      allow create: if owner(request.resource.data) && verified()
+        && getAfter(/databases/$(database)/documents/Users/$(request.auth.uid)).data.phone.matches('^[+]639[0-9]{9}$')
+        && request.resource.data.status == 'pending-payment-verification'
+        && request.resource.data.requestVersion == 2 && requestLock() && initialPayment()
+        && request.resource.data.amountPaid == 0 && request.resource.data.paymentStatus == 'pending_verification'
+        && request.resource.data.totalPrice is number && request.resource.data.totalPrice > 0
+        && request.resource.data.remainingBalance == request.resource.data.totalPrice
+        && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time
+        && validDates();
       // Existing public availability screens depend on these reads. Do not tighten
       // them without first supplying a privacy-safe inventory source for those screens.
       allow read: if true;
-      allow update: if staff() || (owner(resource.data)
+      function staffBookingUpdate() {
+        return staff() && (resource.data.get('requestVersion', 1) < 2
+          || request.resource.data.status != 'confirmed' || resource.data.status == 'confirmed'
+          || (resource.data.status == 'pending' && resource.data.paymentStatus in ['partial', 'paid']
+            && resource.data.amountPaid >= resource.data.downPaymentAmount
+            && request.resource.data.amountPaid == resource.data.amountPaid
+            && get(/databases/$(database)/documents/Payments/$(resource.data.get('paymentRecordId', resource.data.paymentId))).data.verificationStatus == 'verified'));
+      }
+      allow update: if staffBookingUpdate() || (owner(resource.data)
         && request.resource.data.userId == resource.data.userId
-        && (validCancellation() || (
-          request.resource.data.status == resource.data.status
-          && request.resource.data.get('amountPaid', 0) == resource.data.get('amountPaid', 0)
-          && request.resource.data.get('bookingRef', '') == resource.data.get('bookingRef', '')
-          && request.resource.data.get('cancelledAt', null) == resource.data.get('cancelledAt', null)
-        )));
+        && ((request.resource.data.status == 'cancelled' && validCancellation(bookingId)) || paymentSubmission() || modificationRequest()));
+      function modificationRequest() {
+        let change = request.resource.data.modificationRequest;
+        return verified() && resource.data.status == 'confirmed'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['modificationRequest'])
+          && change.keys().hasOnly(['checkIn', 'checkOut', 'requestedBy', 'requestedAt'])
+          && change.requestedBy == request.auth.uid && change.requestedAt == request.time
+          && change.checkIn is string && change.checkOut is string && change.checkIn < change.checkOut;
+      }
+      function paymentSubmission() {
+        let data = request.resource.data;
+        let payment = getAfter(/databases/$(database)/documents/Payments/$(data.paymentRecordId)).data;
+        return verified() && resource.data.status in ['pending', 'pending-payment-verification', 'confirmed', 'checked-in']
+          && resource.data.paymentStatus != 'pending_verification'
+          && data.diff(resource.data).affectedKeys().hasOnly(['paymentStatus', 'paymentMethod', 'paymentReference', 'paymentRecordId', 'remainingBalance', 'downPaymentAmount'])
+          && data.paymentStatus == 'pending_verification'
+          && data.remainingBalance == resource.data.totalPrice - resource.data.get('amountPaid', 0)
+          && payment.bookingId == bookingId && payment.customerId == request.auth.uid
+          && payment.status == 'pending' && payment.verificationStatus == 'pending'
+          && payment.referenceNumber == data.paymentReference
+          && !exists(/databases/$(database)/documents/Payments/$(data.paymentRecordId));
+      }
+      allow delete: if false;
+    }
+    match /BookingLocks/{typeId} {
+      allow read, create, update: if staff();
       allow delete: if false;
     }
     match /reviews/{reviewId} {
@@ -78,10 +182,15 @@ service cloud.firestore {
     }
     match /Payments/{paymentId} {
       allow read: if staff() || (signedIn() && resource.data.customerId == request.auth.uid);
-      allow create: if signedIn() && request.resource.data.customerId == request.auth.uid
-        && get(/databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)).data.userId == request.auth.uid
+      allow create: if staff() || (verified() && request.resource.data.customerId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)).data.userId == request.auth.uid
         && request.resource.data.status == 'pending' && request.resource.data.verificationStatus == 'pending'
-        && request.resource.data.amount is number && request.resource.data.amount > 0;
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.amount <= getAfter(/databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)).data.totalPrice
+          - getAfter(/databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)).data.get('amountPaid', 0)
+        && (getAfter(/databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)).data.get('paymentId', '') == paymentId
+          || getAfter(/databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)).data.get('paymentRecordId', '') == paymentId)
+        && request.resource.data.referenceNumber.matches('^[0-9]{10,20}$'));
       allow update: if staff();
       allow delete: if false;
     }

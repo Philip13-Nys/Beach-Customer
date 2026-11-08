@@ -7,7 +7,7 @@ const checkIn = "2026-11-16";
 const checkOut = "2026-11-17";
 const selection = new URLSearchParams({ checkIn, checkOut, guests: "3" });
 
-function mount(page, path, search, user, state = null, authLoading = false) {
+function mount(page, path, search, user, state = null, authLoading = false, catalog = []) {
   const runtime = hooks();
   const navigation = [];
   const Page = compile(`src/app/pages/${page}.tsx`, {
@@ -15,6 +15,17 @@ function mount(page, path, search, user, state = null, authLoading = false) {
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "date-fns": dateFns,
     "../../hooks/useAsyncAction": { useAsyncAction: () => ({ pending: false }) },
+    "../../hooks/useActivityAvailability": { useActivityAvailability: () => ({ catalog, occupied: [], loading: false, error: "" }) },
+    "../components/ActivitySchedulePicker": { __esModule: true, default: "activity-schedule" },
+    "../components/PackageBookingFields": { default: "package-fields" },
+    "../components/ServiceAddOnAvailability": { __esModule: true, default: "service-availability" },
+    "../utils/activityAvailability": compile("src/app/utils/activityAvailability.ts"),
+    "../../hooks/useResortSettings": { useResortSettings: () => ({ settings: { checkInTime: "14:00", checkOutTime: "11:00" }, loading: false, error: "" }) },
+    "../utils/stayTimes": compile("src/app/utils/stayTimes.ts"),
+    "../../hooks/useRoomAvailability": { useRoomAvailability: () => ({ available: 1, loading: false, error: "" }), checkAvailability: async () => 1 },
+    "../components/BookingPayment": { default: "manual-payment", emptyManualPayment: () => ({}), validManualPayment: () => false },
+    "../services/bookingRequests": {},
+    "../utils/bookingPolicy": {},
     "../context/AppContext": { useApp: () => ({ user, authLoading }) },
     "../components/firebase": { auth: {}, db: {}, customerDb: {} },
     "react-router": {
@@ -108,4 +119,42 @@ test("direct booking waits for authentication and keeps the stay in the login de
   const target = new URL(redirect.options.state.returnTo, "https://example.test");
   assert.equal(target.pathname, "/booking/suite");
   assert.deepEqual(Object.fromEntries(target.searchParams), Object.fromEntries(selection));
+});
+
+test("booking review displays the configured stay times separately from estimated arrival", async () => {
+  const view = mount("Booking", "/booking/suite", selection, { id: "guest" });
+  const form = await loaded(view);
+  const stayTimes = form.find(node => node.type === "dl" && node.props["aria-label"] === "Resort check-in and check-out times");
+  assert.ok(stayTimes);
+  for (const text of ["Check-in", "From 2:00 PM", "Check-out", "Until 11:00 AM"]) assert.ok(nodes(stayTimes).some(node => node.props.children === text), text);
+  form.find(node => node.type === "input" && node.props.type === "time").props.onChange({ target: { value: "15:30" } });
+  const submit = view.render().find(node => node.type === "button" && node.props.children === "Review & Confirm");
+  await submit.props.onClick();
+  const review = view.render();
+  for (const text of ["Review Your Booking", "From 2:00 PM", "Until 11:00 AM", "Estimated Arrival"]) {
+    assert.ok(review.some(node => node.props.children === text), text);
+  }
+});
+
+test("selecting a service opens its date/time picker in the same card without nesting controls in the checkbox label", async () => {
+  const service = { id:"snorkel",itemType:"service",name:"Snorkling",price:500,status:"active",availability:{ capacity:4,durationMinutes:120,opensAt:"07:00",closesAt:"17:00",days:[0,1,2,3,4,5,6] } };
+  const view=mount("Booking","/booking/suite",selection,{ id:"guest" },null,false,[service]);
+  let tree=await loaded(view);
+  assert.equal(tree.some(node=>node.type==="activity-schedule"),false);
+  const checkbox=()=>tree.find(node=>node.type==="input"&&node.props["aria-label"]==="Add Snorkling");
+  assert.equal(checkbox().props.disabled,false);
+  checkbox().props.onChange();tree=view.render();
+  const picker=tree.find(node=>node.type==="activity-schedule");
+  assert.ok(picker);assert.equal(tree.filter(node=>node.type==="activity-schedule").length,1);
+  const card=tree.find(node=>node.type==="div"&&Array.isArray(node.props.children)&&node.props.children.some(child=>child?.type==="label"&&nodes(child).some(n=>n.props["aria-label"]==="Add Snorkling")));
+  assert.ok(card);assert.ok(nodes(card).includes(picker));
+  assert.equal(tree.some(node=>node.type==="label"&&nodes(node).includes(picker)),false);
+  assert.equal(picker.props.minDate,checkIn);assert.equal(picker.props.maxDate,checkOut);
+  picker.props.onChange({ bookingDate:checkIn,bookingTime:"09:00",participants:2 });tree=view.render();
+  assert.equal(checkbox().props.checked,true);
+  assert.equal(tree.find(node=>node.type==="activity-schedule").props.value.bookingTime,"09:00");
+  assert.equal(tree.find(node=>node.type==="service-availability").props.selected.bookingTime,"09:00");
+  checkbox().props.onChange();tree=view.render();
+  assert.equal(tree.some(node=>node.type==="activity-schedule"),false);
+  assert.equal(tree.find(node=>node.type==="service-availability").props.selected,undefined);
 });

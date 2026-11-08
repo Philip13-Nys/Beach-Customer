@@ -15,6 +15,8 @@ export function compile(path, mocks = {}, globals = {}) {
       module,
       exports: module.exports,
       console: { error() {}, warn() {} },
+      setInterval: () => 0,
+      clearInterval() {},
       require(name) {
         if (!(name in mocks)) throw Error(`Unexpected import: ${name}`);
         return mocks[name];

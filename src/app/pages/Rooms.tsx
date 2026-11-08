@@ -1,8 +1,10 @@
+import { useAvailabilityRecords } from "../../hooks/useRoomAvailability";
+import { remainingRooms } from "../utils/availability";
 import { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Users, Filter, X, Search } from "lucide-react";
-import { db, customerDb } from "../components/firebase";
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
+import { db } from "../components/firebase";
+import { collection, onSnapshot, doc, getDoc } from "firebase/firestore";
 
 type RoomType = {
   id: string;
@@ -10,33 +12,11 @@ type RoomType = {
   description: string;
   count: number;
   availableCount?: number;
+  availabilityKnown?: boolean;
   amenities: string[];
   maxGuests: number;
   basePrice: number;
   image: string;
-};
-
-type Booking = {
-  id: string;
-  status?: string;
-  checkIn?: any;
-  checkOut?: any;
-  roomTypeId?: string;
-  roomId?: string;
-  roomName?: string;
-  roomType?: string | { id?: string; name?: string };
-  quantity?: number;
-  rooms?: number;
-  numberOfRooms?: number;
-};
-
-type IndividualRoom = {
-  id: string;
-  roomId: string;
-  roomTypeId: string;
-  roomTypeName: string;
-  type?: string;
-  status: string;
 };
 
 type ResortSettings = {
@@ -81,73 +61,8 @@ function dateOnly(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function bookingOverlaps(
-  booking: Booking,
-  requestedCheckIn: Date,
-  requestedCheckOut: Date,
-): boolean {
-  const checkIn = toDate(booking.checkIn);
-  const checkOut = toDate(booking.checkOut);
-
-  if (!checkIn || !checkOut) return false;
-
-  return (
-    dateOnly(checkIn) < dateOnly(requestedCheckOut) &&
-    dateOnly(checkOut) > dateOnly(requestedCheckIn)
-  );
-}
-
-function normalize(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase();
-}
-
-function isInactiveBooking(status?: string): boolean {
-  return ["cancelled", "canceled", "rejected", "declined"].includes(
-    normalize(status),
-  );
-}
-
-function isBlockingBooking(status?: string): boolean {
-  return ["pending", "confirmed", "approved"].includes(normalize(status));
-}
-
-function getBookingQuantity(booking: Booking): number {
-  const raw = Number(
-    booking.quantity ?? booking.numberOfRooms ?? booking.rooms ?? 1,
-  );
-
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1;
-}
-
-function getBookingTypeValues(booking: Booking): string[] {
-  const values = [
-    booking.roomTypeId,
-    booking.roomName,
-    typeof booking.roomType === "string"
-      ? booking.roomType
-      : booking.roomType?.id,
-    typeof booking.roomType === "object" ? booking.roomType?.name : undefined,
-  ];
-
-  return values.map(normalize).filter(Boolean);
-}
-
-function roomMatchesBookingType(
-  room: IndividualRoom,
-  booking: Booking,
-): boolean {
-  const bookingValues = getBookingTypeValues(booking);
-  const roomTypeId = normalize(room.roomTypeId);
-  const roomTypeName = normalize(room.roomTypeName);
-
-  return (
-    bookingValues.includes(roomTypeId) || bookingValues.includes(roomTypeName)
-  );
-}
-
 export default function Rooms() {
+  const inventory = useAvailabilityRecords();
   const [params] = useSearchParams();
 
   const [search, setSearch] = useState("");
@@ -157,8 +72,7 @@ export default function Rooms() {
   const [filterOpen, setFilterOpen] = useState(false);
 
   const [rooms, setRooms] = useState<RoomType[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [individualRooms, setIndividualRooms] = useState<IndividualRoom[]>([]);
+  const [roomError, setRoomError] = useState("");
   const [loading, setLoading] = useState(true);
 
   const [settings, setSettings] = useState<ResortSettings>(DEFAULT_SETTINGS);
@@ -177,20 +91,6 @@ export default function Rooms() {
     !!requestedCheckIn &&
     !!requestedCheckOut &&
     dateOnly(requestedCheckIn) < dateOnly(requestedCheckOut);
-
-  const availableIdsParam = params.get("availableRoomTypes");
-  const hasAvailabilityParam = availableIdsParam !== null;
-
-  const availableIds = useMemo(
-    () =>
-      new Set(
-        (availableIdsParam || "")
-          .split(",")
-          .map((id) => id.trim().toLowerCase())
-          .filter(Boolean),
-      ),
-    [availableIdsParam],
-  );
 
   useEffect(() => {
     let active = true;
@@ -227,254 +127,67 @@ export default function Rooms() {
     };
   }, []);
 
-  useEffect(() => {
-    let active = true;
-
-    const loadRooms = async () => {
-      setLoading(true);
-
-      try {
-        const [roomTypesResult, bookingsResult, individualRoomsResult] =
-          await Promise.allSettled([
-            getDocs(collection(db, "roomTypes")),
-            getDocs(collection(customerDb, "Bookings")),
-            getDocs(collection(db, "rooms")),
-          ]);
-
-        if (!active) return;
-
-        if (roomTypesResult.status === "rejected") {
-          console.error("Failed to load room types:", roomTypesResult.reason);
-          setRooms([]);
-          setBookings([]);
-          setIndividualRooms([]);
-          return;
-        }
-
-        const roomTypesSnapshot = roomTypesResult.value;
-
-        const roomData: RoomType[] = roomTypesSnapshot.docs.map((roomDoc) => {
-          const data = roomDoc.data();
-
-          return {
-            id: roomDoc.id,
-            name: String(data.name || ""),
-            description:
-              typeof data.description === "string"
-                ? data.description.trim()
-                : "",
-            count: Math.max(
-              0,
-              Number(data.count ?? data.quantity ?? data.totalRooms ?? 0),
-            ),
-            amenities: Array.isArray(data.amenities) ? data.amenities : [],
-            maxGuests: Number(data.maxGuests ?? data.capacity ?? 1),
-            basePrice: Number(data.basePrice ?? data.price ?? 0),
-            image: String(data.image || ""),
-          };
-        });
-
-        const nameToRoomTypeId: Record<string, string> = {};
-
-        roomData.forEach((roomType) => {
-          const name = normalize(roomType.name);
-          if (name) nameToRoomTypeId[name] = roomType.id;
-        });
-
-        let individualRoomData: IndividualRoom[] = [];
-
-        if (individualRoomsResult.status === "fulfilled") {
-          individualRoomData = individualRoomsResult.value.docs.map(
-            (roomDoc) => {
-              const data = roomDoc.data();
-
-              const typeName = String(
-                data.type ||
-                  data.roomTypeName ||
-                  (typeof data.roomType === "string"
-                    ? data.roomType
-                    : data.roomType?.name) ||
-                  "",
-              );
-
-              const directTypeId = String(
-                data.roomTypeId ||
-                  data.typeId ||
-                  (typeof data.roomType === "object"
-                    ? data.roomType?.id
-                    : "") ||
-                  "",
-              );
-
-              const resolvedTypeId =
-                directTypeId || nameToRoomTypeId[normalize(typeName)] || "";
-
+  useEffect(
+    () =>
+      onSnapshot(
+        collection(db, "roomTypes"),
+        (snapshot) => {
+          setRooms(
+            snapshot.docs.map((document) => {
+              const data = document.data();
               return {
-                id: roomDoc.id,
-                roomId: String(data.roomId || roomDoc.id),
-                roomTypeId: resolvedTypeId,
-                roomTypeName: typeName,
-                type: typeName,
-                status: normalize(data.status || "available"),
+                ...data,
+                id: document.id,
+                name: String(data.name || ""),
+                description: String(data.description || "").trim(),
+                count: Math.max(
+                  0,
+                  Number(data.count ?? data.quantity ?? data.totalRooms ?? 0),
+                ),
+                amenities: Array.isArray(data.amenities) ? data.amenities : [],
+                maxGuests: Number(data.maxGuests ?? data.capacity ?? 1),
+                basePrice: Number(data.basePrice ?? data.price ?? 0),
+                image: String(data.image || ""),
               };
-            },
+            }),
           );
-        } else {
-          console.warn(
-            "Could not load individual rooms:",
-            individualRoomsResult.reason,
-          );
-        }
-
-        let bookingData: Booking[] = [];
-
-        if (bookingsResult.status === "fulfilled") {
-          bookingData = bookingsResult.value.docs.map((bookingDoc) => ({
-            id: bookingDoc.id,
-            ...bookingDoc.data(),
-          })) as Booking[];
-        } else {
-          console.error(
-            "Failed to load customer bookings:",
-            bookingsResult.reason,
-          );
-        }
-
-        setRooms(roomData);
-        setBookings(bookingData);
-        setIndividualRooms(individualRoomData);
-      } catch (error) {
-        console.error("Error loading rooms:", error);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-
-    loadRooms();
-
-    return () => {
-      active = false;
-    };
-  }, []);
+          setLoading(false);
+          setRoomError("");
+        },
+        () => {
+          setLoading(false);
+          setRooms([]);
+          setRoomError("Unable to load rooms. Please try again later.");
+        },
+      ),
+    [],
+  );
 
   const roomsWithAvailability = useMemo(() => {
-    return rooms
-      .map((roomType) => {
-        const typeRooms = individualRooms.filter(
-          (room) =>
-            normalize(room.roomTypeId) === normalize(roomType.id) ||
-            normalize(room.roomTypeName) === normalize(roomType.name),
-        );
-
-        const hasIndividualInventory = typeRooms.length > 0;
-
-        const inventory = hasIndividualInventory
-          ? typeRooms.filter((room) => room.status !== "maintenance")
-          : [];
-
-        const activeBookings = bookings.filter(
-          (booking) =>
-            isBlockingBooking(booking.status) &&
-            !isInactiveBooking(booking.status) &&
-            hasValidDateRange &&
-            requestedCheckIn &&
-            requestedCheckOut &&
-            bookingOverlaps(booking, requestedCheckIn, requestedCheckOut),
-        );
-
-        let availableCount = 0;
-
-        if (!hasValidDateRange || !requestedCheckIn || !requestedCheckOut) {
-          availableCount = hasIndividualInventory
-            ? inventory.length
-            : roomType.count;
-        } else if (hasIndividualInventory) {
-          const typeBookings = activeBookings.filter((booking) =>
-            roomMatchesBookingType(
-              {
-                id: "",
-                roomId: "",
-                roomTypeId: roomType.id,
-                roomTypeName: roomType.name,
-                status: "",
-              },
-              booking,
+    const start =
+      checkInParam ||
+      new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const end =
+      checkOutParam ||
+      new Date(Date.parse(start + "T00:00:00Z") + 86400000)
+        .toISOString()
+        .slice(0, 10);
+    return rooms.map((room) => ({
+      ...room,
+      availabilityKnown: !inventory.error && !inventory.loading,
+      availableCount:
+        inventory.error || inventory.loading
+          ? 0
+          : remainingRooms(
+              room,
+              inventory.rooms,
+              inventory.bookings,
+              inventory.reservations,
+              start,
+              end,
             ),
-          );
-
-          const specificallyBookedRoomIds = new Set<string>();
-          let typeLevelBookedCount = 0;
-
-          typeBookings.forEach((booking) => {
-            const bookingRoomId = normalize(booking.roomId);
-
-            const matchingIndividualRoom = inventory.find(
-              (room) =>
-                bookingRoomId === normalize(room.id) ||
-                bookingRoomId === normalize(room.roomId),
-            );
-
-            if (matchingIndividualRoom) {
-              specificallyBookedRoomIds.add(matchingIndividualRoom.id);
-            } else {
-              const isTypeLevelBooking =
-                bookingRoomId === normalize(roomType.id) ||
-                getBookingTypeValues(booking).includes(
-                  normalize(roomType.id),
-                ) ||
-                getBookingTypeValues(booking).includes(
-                  normalize(roomType.name),
-                );
-
-              if (isTypeLevelBooking) {
-                typeLevelBookedCount += getBookingQuantity(booking);
-              }
-            }
-          });
-
-          const unbookedIndividualCount = inventory.filter(
-            (room) => !specificallyBookedRoomIds.has(room.id),
-          ).length;
-
-          availableCount = Math.max(
-            0,
-            unbookedIndividualCount - typeLevelBookedCount,
-          );
-        } else {
-          const bookedCount = activeBookings.reduce((total, booking) => {
-            const values = getBookingTypeValues(booking);
-
-            const matchesType =
-              values.includes(normalize(roomType.id)) ||
-              values.includes(normalize(roomType.name)) ||
-              normalize(booking.roomId) === normalize(roomType.id);
-
-            return matchesType ? total + getBookingQuantity(booking) : total;
-          }, 0);
-
-          availableCount = Math.max(0, roomType.count - bookedCount);
-        }
-
-        return {
-          ...roomType,
-          availableCount,
-        };
-      })
-      .filter(
-        (room) =>
-          room.availableCount! > 0 &&
-          (!hasAvailabilityParam || availableIds.has(room.id.toLowerCase())),
-      );
-  }, [
-    rooms,
-    bookings,
-    individualRooms,
-    hasValidDateRange,
-    requestedCheckIn,
-    requestedCheckOut,
-    hasAvailabilityParam,
-    availableIds,
-  ]);
+    }));
+  }, [rooms, inventory, checkInParam, checkOutParam]);
 
   const searchText = search.toLowerCase();
 
@@ -500,6 +213,11 @@ export default function Rooms() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      {(roomError || inventory.error) && (
+        <p role="alert" className="mb-4 text-sm text-red-700">
+          {roomError || inventory.error}
+        </p>
+      )}
       <div className="mb-8">
         <h1
           style={{
@@ -514,12 +232,12 @@ export default function Rooms() {
 
         <p className="text-muted-foreground text-sm mt-1">
           {filtered.length} room type
-          {filtered.length !== 1 ? "s" : ""} available · {settings.address}
+          {filtered.length !== 1 ? "s" : ""} · {settings.address}
         </p>
 
         {hasValidDateRange && (
           <p className="text-muted-foreground text-xs mt-1">
-            Showing room types available for {dateOnly(requestedCheckIn!)} to{" "}
+            Room availability for {dateOnly(requestedCheckIn!)} to{" "}
             {dateOnly(requestedCheckOut!)}
           </p>
         )}
@@ -638,7 +356,7 @@ export default function Rooms() {
         </aside>
 
         <div className="flex-1">
-          {loading ? (
+          {loading || inventory.loading ? (
             <div className="text-center py-20">
               <p className="text-muted-foreground">Loading rooms...</p>
             </div>
@@ -777,13 +495,24 @@ function RoomCard({
             <span className="text-muted-foreground text-xs">/night</span>
           </div>
 
-          <Link
-            to={detailUrl}
-            state={{ checkIn, checkOut, guests }}
-            className="text-sm font-medium px-4 py-2 rounded-xl bg-primary text-white hover:bg-primary/90 transition-colors"
-          >
-            View Details
-          </Link>
+          {displayCount <= 0 ? (
+            <button
+              disabled
+              className="text-sm font-medium px-4 py-2 rounded-xl bg-muted text-muted-foreground cursor-not-allowed"
+            >
+              {room.availabilityKnown === false
+                ? "Unavailable"
+                : "Fully Booked"}
+            </button>
+          ) : (
+            <Link
+              to={detailUrl}
+              state={{ checkIn, checkOut, guests }}
+              className="text-sm font-medium px-4 py-2 rounded-xl bg-primary text-white hover:bg-primary/90 transition-colors"
+            >
+              View Details
+            </Link>
+          )}
         </div>
       </div>
     </div>

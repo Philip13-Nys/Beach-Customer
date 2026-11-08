@@ -1,0 +1,246 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Retained from the previous additions.
+    // The replacement lock rules below do not use this function.
+    function hasManagementAccess() {
+      return request.auth != null
+        && request.auth.token.get("role", "") in [
+          "Administrator",
+          "Manager",
+          "Receptionist",
+          "admin",
+          "manager",
+          "receptionist"
+        ];
+    }
+
+    match /Users/{userId} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == userId;
+    }
+
+    // Customer booking submission lock.
+    match /Users/{userId}/bookingState/{stateId} {
+      allow get: if request.auth != null
+        && request.auth.uid == userId
+        && stateId == "requests";
+
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && stateId == "requests"
+
+        && request.resource.data.keys()
+          .hasAll(["revision", "bookingId", "updatedAt"])
+
+        && request.resource.data.keys()
+          .hasOnly(["revision", "bookingId", "updatedAt"])
+
+        && request.resource.data.revision is int
+        && request.resource.data.bookingId is string
+        && request.resource.data.updatedAt == request.time
+
+        && request.resource.data.revision == (
+          exists(
+            /databases/$(database)/documents/Users/$(userId)/bookingState/requests
+          )
+            ? resource.data.revision + 1
+            : 1
+        )
+
+        && !exists(
+          /databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)
+        )
+
+        && getAfter(
+          /databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)
+        ).data.userId == userId
+
+        && getAfter(
+          /databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)
+        ).data.status == "pending-payment-verification";
+
+      allow list, delete: if false;
+    }
+
+    match /Bookings/{bookingId} {
+      allow create: if request.auth != null;
+
+      allow read: if true;
+
+      allow update: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow update, delete: if true;
+    }
+
+    match /roomTypes/{roomTypeId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /rooms/{roomId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /services/{serviceId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /packages/{packageId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /Inquiries/{inquiryId} {
+      allow read: if true;
+      allow write: if true;
+
+      match /replies/{replyId} {
+        allow read: if true;
+        allow write: if true;
+      }
+    }
+
+    match /Payments/{paymentId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /Reviews/{reviewId} {
+      allow read: if true;
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if resource.data.status == "published"
+        || (
+          request.auth != null
+          && resource.data.userId == request.auth.uid
+        );
+
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && request.resource.data.comment is string
+        && request.resource.data.bookingId is string;
+    }
+
+    match /Notifications/{notificationId} {
+      allow get: if request.auth != null
+        && (
+          resource.data.userId == request.auth.uid
+          || notificationId.matches(
+            '^' + request.auth.uid + '_.*'
+          )
+        );
+
+      allow list: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow create: if request.auth != null
+        && request.resource.data.userId is string
+        && request.resource.data.role == "customer";
+
+      allow update: if request.auth != null
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(["read"]);
+
+      allow delete: if false;
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+
+      allow update, delete: if false;
+    }
+
+    match /chatConversations/{conversationId} {
+      allow get, list, delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+
+      allow update: if request.auth != null
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /chatMessages/{messageId} {
+      allow get, list, delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+    }
+
+    // REPLACED: Room-allocation lock.
+    // Does not require customer-project authentication.
+    match /BookingLocks/{roomTypeId} {
+      allow get: if true;
+
+      allow create, update: if
+        request.resource.data.keys()
+          .hasAll(["revision", "updatedAt"])
+
+        && request.resource.data.keys()
+          .hasOnly(["revision", "updatedAt"])
+
+        && request.resource.data.revision is int
+        && request.resource.data.updatedAt == request.time
+
+        && request.resource.data.revision == (
+          exists(
+            /databases/$(database)/documents/BookingLocks/$(roomTypeId)
+          )
+            ? resource.data.revision + 1
+            : 1
+        );
+
+      allow list, delete: if false;
+    }
+
+    // REPLACED: Booking-state access during acceptance/editing.
+    // Supplements the customer booking-state rule above.
+    match /Users/{userId}/bookingState/{stateId} {
+      allow get: if stateId == "requests";
+
+      allow create, update: if stateId == "requests"
+
+        && request.resource.data.keys()
+          .hasAll(["revision", "bookingId", "updatedAt"])
+
+        && request.resource.data.keys()
+          .hasOnly(["revision", "bookingId", "updatedAt"])
+
+        && request.resource.data.revision is int
+        && request.resource.data.bookingId is string
+        && request.resource.data.updatedAt == request.time
+
+        && request.resource.data.revision == (
+          exists(
+            /databases/$(database)/documents/Users/$(userId)/bookingState/requests
+          )
+            ? resource.data.revision + 1
+            : 1
+        )
+
+        && getAfter(
+          /databases/$(database)/documents/Bookings/$(request.resource.data.bookingId)
+        ).data.userId == userId;
+
+      allow list, delete: if false;
+    }
+  }
+}

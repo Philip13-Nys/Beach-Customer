@@ -5,6 +5,7 @@ import { AppProvider } from "./context/AppContext";
 import Layout from "./components/Layout";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
+import VerifyEmail from "./pages/VerifyEmail";
 import Profile from "./pages/Profile";
 import Rooms from "./pages/Rooms";
 import RoomDetail from "./pages/RoomDetail";
@@ -22,8 +23,10 @@ export default function App() {
     <AppProvider>
       <ChatProvider>
       <HashRouter>
+        {new URLSearchParams(window.location.search).get("mode") === "verifyEmail" ? <VerifyEmail /> :
         <Routes>
           <Route path="/auth" element={<Auth />} />
+          <Route path="/auth/action" element={<VerifyEmail />} />
 
           <Route
             path="/*"
@@ -55,6 +58,7 @@ export default function App() {
             }
           />
         </Routes>
+        }
       </HashRouter>
       </ChatProvider>
     </AppProvider>
