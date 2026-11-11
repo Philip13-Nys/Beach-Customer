@@ -7,7 +7,7 @@ export function isCompletedBooking(status: unknown): boolean {
 }
 
 export const CANCELLATION_POLICY =
-  "Cancellation Policy: Reservation cancellation becomes available 24 hours after the booking request was submitted and must be completed before check-in. Customers must provide a valid reason for cancellation. Any applicable refund or down payment adjustment is subject to the resort's cancellation and refund policy.";
+  "Cancellation Policy: Reservation cancellation becomes available 24 hours after the booking request was submitted and must be completed before check-in. Customers must provide a valid reason for cancellation.";
 
 export function cancellationReason(
   booking: Record<string, any>,
